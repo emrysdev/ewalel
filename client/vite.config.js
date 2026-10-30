@@ -1,0 +1,4 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+// In development the React app (port 5173) talks to the Node server (port 4000).
+export default defineConfig({ plugins: [react()], server: { proxy: { "/api": "http://localhost:4000", "/uploads": "http://localhost:4000" } } });

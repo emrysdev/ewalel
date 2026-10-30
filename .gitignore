@@ -1,9 +1,4 @@
-node_modules/
-dist/
-.env
-backend/data/
-.env.*
-!.env.example
-*.log
-.DS_Store
-backend/data/bookings.json
+node_modules
+client/dist
+server/data
+server/.env
