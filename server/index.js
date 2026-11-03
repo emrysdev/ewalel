@@ -23,6 +23,13 @@ const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET || JWT_SECRET.length < 20) {
   throw new Error("Set JWT_SECRET (20+ characters) in server/.env");
 }
+// React frontend production build
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const clientDist = path.resolve(
+  __dirname,
+  "../client/dist"
+);
 
 app.use(cors({
   origin: process.env.CLIENT_ORIGIN || "http://localhost:5173"
@@ -984,9 +991,67 @@ app.get("/api/admin/finance", auth, asyncRoute(async (req, res) => {
 }));
 
 // ======================================================
-// ERROR HANDLING
+// SERVE EWALEL REACT FRONTEND
 // ======================================================
 
+// Serve compiled React assets
+app.use(express.static(clientDist));
+
+// Serve React pages and support browser refreshes
+app.use((req, res, next) => {
+  // Keep API requests separate from frontend routes
+  if (req.path.startsWith("/api/")) {
+    return next();
+  }
+
+  // Only serve the React app for page requests
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return next();
+  }
+
+  // Missing static files should not return the React page
+  if (path.extname(req.path)) {
+    return next();
+  }
+
+  res.sendFile(path.join(clientDist, "index.html"), err => {
+    if (err) next(err);
+  });
+});
+
+// ======================================================
+// ERROR HANDLING
+// ======================================================
+// ======================================================
+// SERVE EWALEL REACT FRONTEND
+// ======================================================
+
+const frontendPath = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../client/dist"
+);
+
+// Serve React files
+app.use(express.static(frontendPath));
+
+// React frontend routes
+app.use((req, res, next) => {
+  if (
+    req.method !== "GET" ||
+    req.path.startsWith("/api/") ||
+    req.path.startsWith("/uploads/") ||
+    path.extname(req.path)
+  ) {
+    return next();
+  }
+
+  res.sendFile(
+    path.join(frontendPath, "index.html"),
+    err => {
+      if (err) next(err);
+    }
+  );
+});
 app.use((req, res) => {
   res.status(404).json({ error: "API endpoint not found" });
 });
