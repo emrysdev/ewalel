@@ -11,12 +11,54 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+
+
 
 // ======================================================
 // EWALEL COTTAGES - COMPLETE BACKEND
 // ======================================================
 
+
+
+
 const app = express();
+// Security headers
+app.disable("x-powered-by");
+
+app.use(
+  helmet({
+    contentSecurityPolicy: false
+  })
+);
+
+// General API rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 150,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    error: "Too many requests. Please try again later."
+  }
+});
+
+app.use("/api", apiLimiter);
+
+// Stricter login protection
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    error: "Too many login attempts. Try again in 15 minutes."
+  }
+});
+
+app.use("/api/auth/login", loginLimiter);
+
 const PORT = Number(process.env.PORT || 4000);
 const JWT_SECRET = process.env.JWT_SECRET;
 
