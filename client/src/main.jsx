@@ -14,23 +14,67 @@ import {
   Wrench,
   Clock,
   Menu,
-  X
+  X,
 } from "lucide-react";
 
 import "./style.css";
 import Guest from "./Guest.jsx";
 import CottageManagement from "./components/CottageManagement.jsx";
 
+// =====================================================
+// API CONFIGURATION
+// =====================================================
+
+const isLocal = ["localhost", "127.0.0.1"].includes(
+  window.location.hostname
+);
+
 const BASE = (
-  import.meta.env.VITE_API_URL || "http://localhost:4000"
+  isLocal
+    ? import.meta.env.VITE_API_URL || "http://localhost:4000"
+    : window.location.origin
 ).replace(/\/$/, "");
+
+async function api(path, options = {}, token) {
+  let response;
+
+  try {
+    response = await fetch(`${BASE}/api${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token
+          ? { Authorization: `Bearer ${token}` }
+          : {}),
+        ...options.headers,
+      },
+    });
+  } catch {
+    throw new Error(
+      "Unable to connect to the Ewalel server. Check your Railway deployment and API connection."
+    );
+  }
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || `Request failed (HTTP ${response.status})`
+    );
+  }
+
+  return data;
+}
+
+const money = (value) =>
+  "KES " + Number(value || 0).toLocaleString("en-KE");
 
 const tabs = [
   ["Overview", LayoutDashboard],
   ["Reservations", CalendarDays],
   ["Cottages", House],
   ["Finance", Wallet],
-  ["Reports", FileBarChart]
+  ["Reports", FileBarChart],
 ];
 
 const sections = {
@@ -38,38 +82,39 @@ const sections = {
   Reservations: ["Bookings", "Guests"],
   Cottages: ["Manage cottages", "Maintenance"],
   Finance: ["Revenue & payments"],
-  Reports: ["Excel reports"]
+  Reports: ["Excel reports"],
 };
 
-const money = (n) =>
-  "KES " + Number(n || 0).toLocaleString("en-KE");
+const emptyMaintenance = {
+  cottage_id: "",
+  task: "",
+  scheduled_date: "",
+  assigned_to: "",
+  estimated_cost: "",
+  notes: "",
+};
 
-async function api(path, options = {}, token) {
-  const response = await fetch(BASE + "/api" + path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: "Bearer " + token } : {}),
-      ...options.headers
-    }
-  });
+const emptyPayment = {
+  booking_id: "",
+  method: "mpesa",
+  amount: "",
+  reference: "",
+  status: "pending",
+};
 
-  const data = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(data.error || "Request failed");
-  }
-
-  return data;
-}
+// =====================================================
+// ADMIN APPLICATION
+// =====================================================
 
 function App() {
   const [token, setToken] = useState(
-    sessionStorage.getItem("ewalel_token") || ""
+    () => sessionStorage.getItem("ewalel_token") || ""
   );
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
@@ -85,31 +130,20 @@ function App() {
   const [finance, setFinance] = useState({
     revenue: 0,
     outstanding: 0,
-    methods: []
+    methods: [],
   });
 
   const [filter, setFilter] = useState("All");
   const [expanded, setExpanded] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
 
-  const [form, setForm] = useState({
-    cottage_id: "",
-    task: "",
-    scheduled_date: "",
-    assigned_to: "",
-    estimated_cost: "",
-    notes: ""
-  });
+  const [form, setForm] = useState(emptyMaintenance);
+  const [pform, setPform] = useState(emptyPayment);
 
-  const [pform, setPform] = useState({
-    booking_id: "",
-    method: "mpesa",
-    amount: "",
-    reference: "",
-    status: "pending"
-  });
+  // ===================================================
+  // LOAD ADMIN DATA
+  // ===================================================
 
-  // LOAD DATA FROM MYSQL
   const refresh = useCallback(async () => {
     if (!token) return;
 
@@ -119,7 +153,7 @@ function App() {
         api("/admin/maintenance", {}, token),
         api("/admin/bookings", {}, token),
         api("/admin/payments", {}, token),
-        api("/admin/finance", {}, token)
+        api("/admin/finance", {}, token),
       ]);
 
       setCottages(c);
@@ -129,25 +163,34 @@ function App() {
       setFinance(f);
       setError("");
     } catch (err) {
+      if (
+        err.message.includes("Administrator sign-in required") ||
+        err.message.includes("Invalid token")
+      ) {
+        sessionStorage.removeItem("ewalel_token");
+        setToken("");
+      }
+
       setError(err.message);
     }
   }, [token]);
 
   useEffect(() => {
+    if (!token) return;
+
     refresh();
 
     const interval = setInterval(refresh, 15000);
 
     return () => clearInterval(interval);
-  }, [refresh]);
+  }, [refresh, token]);
 
-  // SHARED ACTION HANDLER
-  async function run(fn) {
+  async function run(action) {
     try {
       setError("");
       setNotice("");
 
-      await fn();
+      await action();
       await refresh();
 
       setNotice("Saved successfully");
@@ -156,27 +199,40 @@ function App() {
     }
   }
 
-  // ADMIN LOGIN
+  // ===================================================
+  // ADMIN AUTHENTICATION
+  // ===================================================
+
   async function login(e) {
     e.preventDefault();
 
-    try {
-      setError("");
+    if (loginBusy) return;
 
+    setLoginBusy(true);
+    setError("");
+
+    try {
       const result = await api("/auth/login", {
         method: "POST",
         body: JSON.stringify({
-          email,
-          password
-        })
+          email: email.trim(),
+          password,
+        }),
       });
+
+      if (!result.token) {
+        throw new Error("The server did not return a login token.");
+      }
 
       sessionStorage.setItem("ewalel_token", result.token);
 
       setToken(result.token);
       setPassword("");
+      setNotice("");
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoginBusy(false);
     }
   }
 
@@ -186,9 +242,13 @@ function App() {
     setToken("");
     setError("");
     setNotice("");
+    setPassword("");
   }
 
+  // ===================================================
   // MAINTENANCE CALCULATIONS
+  // ===================================================
+
   const completedMaintenance = records.filter(
     (r) => r.status === "completed"
   );
@@ -222,10 +282,32 @@ function App() {
     return true;
   });
 
+  // ===================================================
+  // LOGIN SCREEN
+  // ===================================================
+
   if (!token) {
     return (
       <main className="login">
         <section className="panel">
+          <div
+            style={{
+              textAlign: "center",
+              marginBottom: 20,
+            }}
+          >
+            <img
+              src="/images/ewalel-logo.png"
+              alt="Ewalel Cottages"
+              style={{
+                width: 120,
+                height: 120,
+                objectFit: "contain",
+                background: "transparent",
+              }}
+            />
+          </div>
+
           <div className="eyebrow">
             EWALEL COTTAGES
           </div>
@@ -233,34 +315,47 @@ function App() {
           <h1>Admin sign in</h1>
 
           <p>
-            Access the MySQL-backed management dashboard.
+            Secure access to the Ewalel Cottages
+            management dashboard.
           </p>
 
           <form onSubmit={login}>
             <div className="fields">
               <label className="wide">
-                Email
+                Email address
+
                 <input
                   type="email"
+                  autoComplete="username"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) =>
+                    setEmail(e.target.value)
+                  }
                 />
               </label>
 
               <label className="wide">
                 Password
+
                 <input
                   type="password"
+                  autoComplete="current-password"
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) =>
+                    setPassword(e.target.value)
+                  }
                 />
               </label>
             </div>
 
-            <button className="primary" type="submit">
-              Sign in
+            <button
+              className="primary"
+              type="submit"
+              disabled={loginBusy}
+            >
+              {loginBusy ? "Signing in..." : "Sign in"}
             </button>
           </form>
 
@@ -274,15 +369,26 @@ function App() {
     );
   }
 
+  // ===================================================
+  // ADMIN DASHBOARD
+  // ===================================================
+
   return (
     <>
-      {/* HEADER */}
       <header>
         <div className="header-inner">
           <div className="brand">
-            <span className="brand-icon">
-              <House size={21} />
-            </span>
+            <img
+              src="/images/ewalel-logo.png"
+              alt="Ewalel Cottages"
+              className="admin-brand-logo"
+              style={{
+                width: 75,
+                height: 75,
+                objectFit: "contain",
+                background: "transparent",
+              }}
+            />
 
             <div>
               <strong>Ewalel Admin</strong>
@@ -292,7 +398,7 @@ function App() {
 
           <div className="header-right">
             <span className="demo">
-              MySQL connected dashboard
+              Ewalel Management System
             </span>
 
             <button
@@ -323,6 +429,7 @@ function App() {
                 setMobile(false);
                 setFormOpen(false);
                 setNotice("");
+                setError("");
               }}
             >
               <Icon size={16} />
@@ -332,17 +439,19 @@ function App() {
         </nav>
       </header>
 
-      {/* MAIN DASHBOARD */}
       <main>
         <div className="breadcrumb">
-          ADMINISTRATION / {tab.toUpperCase()} / {sub.toUpperCase()}
+          ADMINISTRATION / {tab.toUpperCase()} /{" "}
+          {sub.toUpperCase()}
         </div>
 
         <div className="subnav">
           {sections[tab].map((section) => (
             <button
               key={section}
-              className={sub === section ? "active" : ""}
+              className={
+                sub === section ? "active" : ""
+              }
               onClick={() => {
                 setSub(section);
                 setFormOpen(false);
@@ -366,17 +475,21 @@ function App() {
           </div>
         )}
 
-        {/* COTTAGE MANAGEMENT */}
-        {tab === "Cottages" && sub === "Manage cottages" ? (
+        {/* ===========================================
+            COTTAGE MANAGEMENT
+        =========================================== */}
+
+        {tab === "Cottages" &&
+        sub === "Manage cottages" ? (
           <CottageManagement
             cottages={cottages}
             token={token}
             onRefresh={refresh}
           />
 
-        ) : tab === "Cottages" && sub === "Maintenance" ? (
+        ) : tab === "Cottages" &&
+          sub === "Maintenance" ? (
           <>
-            {/* MAINTENANCE PAGE */}
             <div className="page-title">
               <div>
                 <div className="eyebrow">
@@ -386,21 +499,22 @@ function App() {
                 <h1>Maintenance management</h1>
 
                 <p>
-                  Schedule cottage maintenance, track work
-                  and review previous service history.
+                  Schedule cottage maintenance,
+                  track work and review service history.
                 </p>
               </div>
 
               <button
                 className="primary"
-                onClick={() => setFormOpen(!formOpen)}
+                onClick={() =>
+                  setFormOpen(!formOpen)
+                }
               >
                 <Plus size={18} />
                 Add maintenance
               </button>
             </div>
 
-            {/* MAINTENANCE STATISTICS */}
             <div className="stats">
               <article>
                 <span>Scheduled maintenance</span>
@@ -409,6 +523,7 @@ function App() {
                   <strong>
                     {scheduledMaintenance.length}
                   </strong>
+
                   <Clock size={24} />
                 </div>
 
@@ -422,6 +537,7 @@ function App() {
                   <strong>
                     {completedMaintenance.length}
                   </strong>
+
                   <CheckCircle2 size={24} />
                 </div>
 
@@ -435,6 +551,7 @@ function App() {
                   <strong className="money">
                     {money(maintenanceCost)}
                   </strong>
+
                   <Wallet size={24} />
                 </div>
 
@@ -442,7 +559,6 @@ function App() {
               </article>
             </div>
 
-            {/* ADD MAINTENANCE FORM */}
             {formOpen && (
               <section className="panel form-panel">
                 <div className="panel-title">
@@ -451,7 +567,9 @@ function App() {
                   <button
                     type="button"
                     className="icon-button"
-                    onClick={() => setFormOpen(false)}
+                    onClick={() =>
+                      setFormOpen(false)
+                    }
                     aria-label="Close form"
                   >
                     <X />
@@ -467,34 +585,27 @@ function App() {
                         "/admin/maintenance",
                         {
                           method: "POST",
-                          body: JSON.stringify(form)
+                          body: JSON.stringify(form),
                         },
                         token
                       );
 
                       setFormOpen(false);
-
-                      setForm({
-                        cottage_id: "",
-                        task: "",
-                        scheduled_date: "",
-                        assigned_to: "",
-                        estimated_cost: "",
-                        notes: ""
-                      });
+                      setForm(emptyMaintenance);
                     });
                   }}
                 >
                   <div className="fields">
                     <label>
                       Cottage
+
                       <select
                         required
                         value={form.cottage_id}
                         onChange={(e) =>
                           setForm({
                             ...form,
-                            cottage_id: e.target.value
+                            cottage_id: e.target.value,
                           })
                         }
                       >
@@ -502,12 +613,12 @@ function App() {
                           Choose cottage
                         </option>
 
-                        {cottages.map((cottage) => (
+                        {cottages.map((c) => (
                           <option
-                            key={cottage.id}
-                            value={cottage.id}
+                            key={c.id}
+                            value={c.id}
                           >
-                            {cottage.name}
+                            {c.name}
                           </option>
                         ))}
                       </select>
@@ -515,6 +626,7 @@ function App() {
 
                     <label>
                       Maintenance date
+
                       <input
                         type="date"
                         required
@@ -522,7 +634,8 @@ function App() {
                         onChange={(e) =>
                           setForm({
                             ...form,
-                            scheduled_date: e.target.value
+                            scheduled_date:
+                              e.target.value,
                           })
                         }
                       />
@@ -530,13 +643,14 @@ function App() {
 
                     <label className="wide">
                       Task
+
                       <input
                         required
                         value={form.task}
                         onChange={(e) =>
                           setForm({
                             ...form,
-                            task: e.target.value
+                            task: e.target.value,
                           })
                         }
                       />
@@ -544,12 +658,14 @@ function App() {
 
                     <label>
                       Assigned technician
+
                       <input
                         value={form.assigned_to}
                         onChange={(e) =>
                           setForm({
                             ...form,
-                            assigned_to: e.target.value
+                            assigned_to:
+                              e.target.value,
                           })
                         }
                       />
@@ -557,6 +673,7 @@ function App() {
 
                     <label>
                       Estimated cost (KES)
+
                       <input
                         type="number"
                         min="0"
@@ -564,7 +681,8 @@ function App() {
                         onChange={(e) =>
                           setForm({
                             ...form,
-                            estimated_cost: e.target.value
+                            estimated_cost:
+                              e.target.value,
                           })
                         }
                       />
@@ -572,13 +690,14 @@ function App() {
 
                     <label className="wide">
                       Notes
+
                       <textarea
                         rows="3"
                         value={form.notes}
                         onChange={(e) =>
                           setForm({
                             ...form,
-                            notes: e.target.value
+                            notes: e.target.value,
                           })
                         }
                       />
@@ -595,37 +714,44 @@ function App() {
               </section>
             )}
 
-            {/* MAINTENANCE RECORDS */}
             <section className="panel">
               <div className="panel-title">
                 <div>
                   <h2>Maintenance records</h2>
+
                   <p>
-                    Scheduled work and previous maintenance
+                    Scheduled work and previous
+                    maintenance
                   </p>
                 </div>
 
                 <div className="filters">
-                  {["All", "Scheduled", "History"].map(
-                    (item) => (
-                      <button
-                        key={item}
-                        className={
-                          filter === item ? "selected" : ""
-                        }
-                        onClick={() => setFilter(item)}
-                      >
-                        {item}
-                      </button>
-                    )
-                  )}
+                  {[
+                    "All",
+                    "Scheduled",
+                    "History",
+                  ].map((item) => (
+                    <button
+                      key={item}
+                      className={
+                        filter === item
+                          ? "selected"
+                          : ""
+                      }
+                      onClick={() =>
+                        setFilter(item)
+                      }
+                    >
+                      {item}
+                    </button>
+                  ))}
                 </div>
               </div>
 
               <div className="records">
                 {visibleMaintenance.length === 0 ? (
                   <p className="empty">
-                    No records yet. Add a maintenance task above.
+                    No maintenance records found.
                   </p>
                 ) : (
                   visibleMaintenance.map((record) => (
@@ -648,7 +774,9 @@ function App() {
                             </span>
 
                             <span>
-                              <CalendarDays size={14} />
+                              <CalendarDays
+                                size={14}
+                              />
                               {String(
                                 record.scheduled_date
                               ).slice(0, 10)}
@@ -659,14 +787,16 @@ function App() {
                         <span
                           className={
                             "status " +
-                            (
-                              record.status === "completed"
-                                ? "complete"
-                                : "scheduled"
-                            )
+                            (record.status ===
+                            "completed"
+                              ? "complete"
+                              : "scheduled")
                           }
                         >
-                          {record.status.replace("_", " ")}
+                          {record.status.replace(
+                            "_",
+                            " "
+                          )}
                         </span>
                       </div>
 
@@ -674,7 +804,7 @@ function App() {
                         <strong>
                           {money(
                             record.actual_cost ??
-                            record.estimated_cost
+                              record.estimated_cost
                           )}
                         </strong>
 
@@ -696,7 +826,8 @@ function App() {
                         <div className="details">
                           <p>
                             <b>Assigned:</b>{" "}
-                            {record.assigned_to || "Not assigned"}
+                            {record.assigned_to ||
+                              "Not assigned"}
                           </p>
 
                           <p>
@@ -704,24 +835,32 @@ function App() {
                             {record.notes || "None"}
                           </p>
 
-                          {record.status !== "completed" &&
-                            record.status !== "cancelled" && (
+                          {record.status !==
+                            "completed" &&
+                            record.status !==
+                              "cancelled" && (
                               <button
                                 className="primary small"
                                 onClick={() => {
-                                  const entered = window.prompt(
-                                    "Actual cost in KES",
-                                    String(
-                                      record.estimated_cost ?? 0
-                                    )
-                                  );
+                                  const entered =
+                                    window.prompt(
+                                      "Actual cost in KES",
+                                      String(
+                                        record.estimated_cost ??
+                                          0
+                                      )
+                                    );
 
-                                  if (entered === null) return;
+                                  if (entered === null)
+                                    return;
 
-                                  const actualCost = Number(entered);
+                                  const actualCost =
+                                    Number(entered);
 
                                   if (
-                                    !Number.isFinite(actualCost) ||
+                                    !Number.isFinite(
+                                      actualCost
+                                    ) ||
                                     actualCost < 0
                                   ) {
                                     setError(
@@ -733,13 +872,15 @@ function App() {
                                   run(() =>
                                     api(
                                       "/admin/maintenance/" +
-                                      record.id,
+                                        record.id,
                                       {
                                         method: "PATCH",
                                         body: JSON.stringify({
-                                          status: "completed",
-                                          actual_cost: actualCost
-                                        })
+                                          status:
+                                            "completed",
+                                          actual_cost:
+                                            actualCost,
+                                        }),
                                       },
                                       token
                                     )
@@ -759,10 +900,12 @@ function App() {
           </>
 
         ) : tab === "Reservations" ? (
-          /* RESERVATIONS PAGE */
           <section className="panel">
             <h1>{sub}</h1>
-            <p>Booking records from MySQL.</p>
+
+            <p>
+              Guest reservations stored in MySQL.
+            </p>
 
             <div className="records">
               {bookings.map((booking) => (
@@ -771,17 +914,24 @@ function App() {
                   key={booking.id}
                 >
                   <h3>
-                    #{booking.id} — {booking.guest_name}
+                    #{booking.id} —{" "}
+                    {booking.guest_name}
                   </h3>
 
                   <p>
                     {booking.cottage_name}
                     {" · "}
-                    {String(booking.check_in).slice(0, 10)}
+                    {String(
+                      booking.check_in
+                    ).slice(0, 10)}
                     {" to "}
-                    {String(booking.check_out).slice(0, 10)}
+                    {String(
+                      booking.check_out
+                    ).slice(0, 10)}
                     {" · "}
-                    {money(booking.total_amount)}
+                    {money(
+                      booking.total_amount
+                    )}
                   </p>
 
                   <div className="actions">
@@ -794,12 +944,14 @@ function App() {
                       onChange={(e) =>
                         run(() =>
                           api(
-                            "/admin/bookings/" + booking.id,
+                            "/admin/bookings/" +
+                              booking.id,
                             {
                               method: "PATCH",
                               body: JSON.stringify({
-                                status: e.target.value
-                              })
+                                status:
+                                  e.target.value,
+                              }),
                             },
                             token
                           )
@@ -811,9 +963,12 @@ function App() {
                         "confirmed",
                         "cancelled",
                         "checked_in",
-                        "checked_out"
+                        "checked_out",
                       ].map((status) => (
-                        <option key={status} value={status}>
+                        <option
+                          key={status}
+                          value={status}
+                        >
                           {status}
                         </option>
                       ))}
@@ -828,9 +983,9 @@ function App() {
             </div>
           </section>
 
-        ) : tab === "Finance" || tab === "Overview" ? (
+        ) : tab === "Finance" ||
+          tab === "Overview" ? (
           <>
-            {/* FINANCIAL OVERVIEW */}
             <div className="page-title">
               <div>
                 <h1>
@@ -840,8 +995,8 @@ function App() {
                 </h1>
 
                 <p>
-                  Automatically refreshed from MySQL
-                  every 15 seconds.
+                  Automatically refreshed from
+                  MySQL every 15 seconds.
                 </p>
               </div>
             </div>
@@ -871,28 +1026,37 @@ function App() {
                 <span>Total bookings</span>
 
                 <div className="stat">
-                  <strong>{bookings.length}</strong>
+                  <strong>
+                    {bookings.length}
+                  </strong>
                 </div>
               </article>
             </div>
 
-            {/* REVENUE BY PAYMENT METHOD */}
             <section className="panel">
               <h2>Revenue by payment method</h2>
 
-              {["mpesa", "card", "cash"].map((method) => {
+              {[
+                "mpesa",
+                "card",
+                "cash",
+              ].map((method) => {
                 const amount = Number(
-                  finance.methods.find(
-                    (item) => item.method === method
+                  (finance.methods || []).find(
+                    (item) =>
+                      item.method === method
                   )?.amount || 0
                 );
 
-                const percentage = finance.revenue
-                  ? Math.min(
-                      100,
-                      amount / finance.revenue * 100
-                    )
-                  : 0;
+                const percentage =
+                  Number(finance.revenue) > 0
+                    ? Math.min(
+                        100,
+                        (amount /
+                          Number(finance.revenue)) *
+                          100
+                      )
+                    : 0;
 
                 return (
                   <div
@@ -900,15 +1064,17 @@ function App() {
                     key={method}
                   >
                     <div>
-                      {method.toUpperCase()}
-                      {" "}
-                      <strong>{money(amount)}</strong>
+                      {method.toUpperCase()}{" "}
+                      <strong>
+                        {money(amount)}
+                      </strong>
                     </div>
 
                     <div className="track">
                       <div
                         style={{
-                          width: percentage + "%"
+                          width:
+                            percentage + "%",
                         }}
                       />
                     </div>
@@ -919,16 +1085,15 @@ function App() {
 
             {tab === "Finance" && (
               <>
-                {/* RECORD PAYMENT */}
                 <section className="panel">
                   <h2>
-                    Record verified payment or pending payment
+                    Record verified payment
                   </h2>
 
                   <p>
-                    Only record completed payments after
-                    independently verifying a genuine receipt.
-                    No live gateway is included.
+                    Only mark a payment as
+                    completed after independently
+                    verifying the transaction.
                   </p>
 
                   <form
@@ -940,31 +1105,29 @@ function App() {
                           "/admin/payments",
                           {
                             method: "POST",
-                            body: JSON.stringify(pform)
+                            body: JSON.stringify(
+                              pform
+                            ),
                           },
                           token
                         );
 
-                        setPform({
-                          booking_id: "",
-                          method: "mpesa",
-                          amount: "",
-                          reference: "",
-                          status: "pending"
-                        });
+                        setPform(emptyPayment);
                       });
                     }}
                   >
                     <div className="fields">
                       <label>
                         Booking
+
                         <select
                           required
                           value={pform.booking_id}
                           onChange={(e) =>
                             setPform({
                               ...pform,
-                              booking_id: e.target.value
+                              booking_id:
+                                e.target.value,
                             })
                           }
                         >
@@ -972,43 +1135,48 @@ function App() {
                             Select booking
                           </option>
 
-                          {bookings.map((booking) => (
+                          {bookings.map((b) => (
                             <option
-                              key={booking.id}
-                              value={booking.id}
+                              key={b.id}
+                              value={b.id}
                             >
-                              #{booking.id} — {booking.guest_name}
+                              #{b.id} —{" "}
+                              {b.guest_name}
                             </option>
                           ))}
                         </select>
                       </label>
 
                       <label>
-                        Method
+                        Payment method
+
                         <select
                           value={pform.method}
                           onChange={(e) =>
                             setPform({
                               ...pform,
-                              method: e.target.value
+                              method:
+                                e.target.value,
                             })
                           }
                         >
-                          {["mpesa", "card", "cash"].map(
-                            (method) => (
-                              <option
-                                key={method}
-                                value={method}
-                              >
-                                {method}
-                              </option>
-                            )
-                          )}
+                          <option value="mpesa">
+                            M-PESA
+                          </option>
+
+                          <option value="card">
+                            Credit / debit card
+                          </option>
+
+                          <option value="cash">
+                            Cash
+                          </option>
                         </select>
                       </label>
 
                       <label>
                         Amount (KES)
+
                         <input
                           type="number"
                           min="1"
@@ -1017,20 +1185,24 @@ function App() {
                           onChange={(e) =>
                             setPform({
                               ...pform,
-                              amount: e.target.value
+                              amount:
+                                e.target.value,
                             })
                           }
                         />
                       </label>
 
                       <label>
-                        Reference
+                        M-PESA receipt /
+                        Payment reference
+
                         <input
                           value={pform.reference}
                           onChange={(e) =>
                             setPform({
                               ...pform,
-                              reference: e.target.value
+                              reference:
+                                e.target.value,
                             })
                           }
                         />
@@ -1038,21 +1210,23 @@ function App() {
 
                       <label>
                         Status
+
                         <select
                           value={pform.status}
                           onChange={(e) =>
                             setPform({
                               ...pform,
-                              status: e.target.value
+                              status:
+                                e.target.value,
                             })
                           }
                         >
                           <option value="pending">
-                            pending
+                            Pending
                           </option>
 
                           <option value="completed">
-                            completed — verified
+                            Completed — verified
                           </option>
                         </select>
                       </label>
@@ -1067,9 +1241,10 @@ function App() {
                   </form>
                 </section>
 
-                {/* PAYMENT REGISTER */}
                 <section className="panel">
-                  <h2>Payment acknowledgement register</h2>
+                  <h2>
+                    Payment acknowledgement register
+                  </h2>
 
                   {payments.map((payment) => (
                     <div
@@ -1084,7 +1259,8 @@ function App() {
                       {" · "}
                       {money(payment.amount)}
                       {" · "}
-                      {payment.reference || "No reference"}
+                      {payment.reference ||
+                        "No reference"}
                       {" · "}
                       {payment.status}
                     </div>
@@ -1099,14 +1275,13 @@ function App() {
           </>
 
         ) : (
-          /* REPORTS PAGE */
           <section className="panel">
             <h1>Reports</h1>
 
             <p>
-              View live operational totals in Overview
-              and Finance. Excel exports are planned
-              for a later release.
+              View operational totals in Overview
+              and Finance. Excel exports are
+              planned for a later release.
             </p>
           </section>
         )}
@@ -1115,8 +1290,13 @@ function App() {
   );
 }
 
-// RENDER ADMIN OR GUEST WEBSITE
-createRoot(document.getElementById("root")).render(
+// =====================================================
+// ROUTE PUBLIC WEBSITE AND ADMIN DASHBOARD
+// =====================================================
+
+createRoot(
+  document.getElementById("root")
+).render(
   window.location.pathname.startsWith("/admin")
     ? <App />
     : <Guest />
