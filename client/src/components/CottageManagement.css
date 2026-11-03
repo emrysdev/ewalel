@@ -1,0 +1,222 @@
+
+.cm-container {
+  background: #fdfdfd;
+  border: 1px solid #dedede;
+  border-radius: 21px;
+  padding: 14px;
+  color: #171717;
+  font-family: Arial, sans-serif;
+}
+
+.cm-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.cm-heading h1 {
+  font-size: 23px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.cm-heading p {
+  color: #707070;
+  font-size: 15px;
+  margin: 0;
+}
+
+.cm-admin-badge {
+  background: #d8f6e4;
+  color: #00853c;
+  border-radius: 20px;
+  padding: 5px 10px;
+  font-weight: 600;
+}
+
+.cm-tabs {
+  display: flex;
+  gap: 10px;
+  margin: 18px 0 14px;
+}
+
+.cm-tabs button {
+  border: 1px solid #dedede;
+  background: transparent;
+  border-radius: 30px;
+  padding: 11px 16px;
+  font-size: 14px;
+  color: #202020;
+  cursor: pointer;
+}
+
+.cm-tabs .cm-active {
+  background: #e6e9e9;
+  border-color: #e6e9e9;
+  font-weight: 600;
+}
+
+.cm-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+
+.cm-section-heading h2 {
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.cm-add-btn {
+  background: #124446;
+  color: #fff;
+  border: 0;
+  border-radius: 11px;
+  padding: 17px 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.cm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.cm-card {
+  border: 1px solid #dedede;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.cm-image {
+  height: 272px;
+  background: #e9eded;
+}
+
+.cm-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cm-no-image {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #777;
+}
+
+.cm-card-body {
+  padding: 15px;
+}
+
+.cm-card-body h3 {
+  font-size: 20px;
+  margin: 0 0 16px;
+  font-weight: 600;
+}
+
+.cm-card-body p {
+  font-size: 14px;
+  color: #777;
+  margin-bottom: 14px;
+}
+
+.cm-card-body strong {
+  display: block;
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+
+.cm-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.cm-actions button {
+  width: 40px;
+  height: 40px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.cm-actions button:hover {
+  background: #eef3f3;
+}
+
+.cm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 20px;
+}
+
+.cm-modal {
+  background: white;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.cm-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cm-modal-header button {
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.cm-modal label {
+  display: block;
+  margin: 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.cm-modal input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 7px;
+  padding: 12px;
+  border: 1px solid #dedede;
+  border-radius: 9px;
+}
+
+.cm-error {
+  color: #b42318;
+}
+
+@media (max-width: 700px) {
+  .cm-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cm-image {
+    height: 230px;
+  }
+}

@@ -1,67 +1,61 @@
-# Ewalel Cottages: booking site and admin dashboard
+# Ewalel Cottages — independent designed full-stack application
 
-React (Vite) frontend and Node.js (Express) backend. One server serves the guest website at `/` and the owner dashboard at `/admin`.
+This is a **new, separate project** based on the five-tab admin UI design, not a copy of the user's original application.
 
-## Run it on your computer
-Needs Node.js 20 or newer and a MySQL server (MySQL 8 recommended; 5.7 and MariaDB also work). Create a database user first (in MySQL Workbench, open a SQL tab on your server and run this, with your own password):
+## Contents
+- `client/`: React + Vite dashboard
+- `server/`: Node.js + Express REST API, administrator JWT authentication, MySQL queries
+- `mysql/schema.sql`: new isolated MySQL database (`ewalel_designed`)
 
-```sql
-CREATE DATABASE ewalel CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'ewalel'@'localhost' IDENTIFIED BY 'a-strong-password';
-GRANT ALL PRIVILEGES ON ewalel.* TO 'ewalel'@'localhost';
-```
+## Setup (Windows / VS Code)
+1. Install Node.js 20+ and MySQL 8+.
+2. In MySQL Workbench, open and execute `mysql/schema.sql`. **This creates a new database; do not run it over your existing Ewalel database.**
+3. Create a dedicated MySQL user with access to `ewalel_designed` (or use your own existing authorized account). For example, using a privileged MySQL session:
+   ```sql
+   CREATE USER IF NOT EXISTS 'ewalel_app'@'localhost' IDENTIFIED BY 'REPLACE_WITH_STRONG_PASSWORD';
+   GRANT SELECT,INSERT,UPDATE,DELETE ON ewalel_designed.* TO 'ewalel_app'@'localhost';
+   ```
+4. Copy `server/.env.example` to `server/.env`. Fill in MySQL credentials, a long random `JWT_SECRET`, and an `ADMIN_EMAIL` and strong `ADMIN_PASSWORD`. Never commit `.env`.
+5. From the `server` folder run `npm install`, then `node create-admin.js`, then `npm run dev`.
+6. Copy `client/.env.example` to `client/.env`. From the `client` folder run `npm install` and `npm run dev`.
+7. Open `http://localhost:5173` and sign in with the admin credentials you configured.
 
-Then:
+## Included features
+- Admin sign-in with bcrypt-hashed password and JWT.
+- Cottage creation with name, location, price, capacity, description, optional photo URL.
+- Maintenance scheduling, previous maintenance history, completion tracking and costs.
+- Booking API with basic date conflict and maintenance-date checks; booking management UI.
+- Payment acknowledgement entry (manual, with reference), live revenue, outstanding balances, method breakdown and 15-second refresh.
+- REST API health check at `http://localhost:3001/api/health`.
 
-```
-npm run setup
-cp server/.env.example server/.env      # then edit it: DB_PASSWORD (the one you chose above), ADMIN_PASSWORD, TOKEN_SECRET
-npm run dev:server                      # terminal 1: API on http://localhost:4000
-npm run dev:client                      # terminal 2: site on http://localhost:5173 (admin: /admin)
-```
+## Limitations / production work
+- **M-PESA STK Push and card gateway are NOT integrated.** Payment entry is manual and must be independently verified. Never enter real card numbers in this app.
+- This is an **admin-first** full-stack MVP, not a complete guest-facing booking storefront. Public `GET /api/cottages` and `POST /api/bookings` APIs exist, but guest booking UI is not included.
+- Reports are a placeholder; no XLSX export yet.
+- Add rate limiting, HTTPS, access logging, backup/restore, CSRF/session strategy as applicable, secure media uploads and gateway webhook verification before production deployment.
+- Booking conflict protection uses a per-cottage database row lock; external channel bookings and time-zone nuances require further integration.
+- Photo management currently uses URL fields, not binary upload.
+- No demo revenue is seeded; revenue is 0 until completed payments are entered.
 
-## Put it online
-```
-npm run setup && npm run build
-npm start                                # serves everything on PORT (default 4000)
-```
-Use any Node host with a persistent disk (a small VPS, Render, Railway or Fly.io) and put it behind HTTPS. Bookings, prices and everything else live in MySQL (a managed MySQL from your host works well). Photos are saved in `server/uploads/`, so keep that folder on the persistent disk too. **Back up both** (see below).
+## Key API endpoints
+`POST /api/auth/login`, `GET /api/cottages`, `POST /api/bookings`, `GET/POST /api/admin/cottages`, `PATCH /api/admin/cottages/:id`, `GET/POST /api/admin/maintenance`, `PATCH /api/admin/maintenance/:id`, `GET/PATCH /api/admin/bookings`, `GET/POST /api/admin/payments`, `GET /api/admin/finance`.
 
-## What the owner can do at /admin
-Nine tabs. The period buttons at the top (this month, next 90 days, last 3 months, this year, last 12 months) change every chart and report.
-- **Overview:** needs-attention list (payments to verify, holds about to expire, today's arrivals), KPIs (revenue, occupancy, average daily rate, revenue per available night, bookings, average stay, booking conversion, balance due), revenue and occupancy by month, the website booking funnel and a 60-day timeline.
-- **Revenue:** average daily rate and revenue per available night by month, revenue by penthouse, how far ahead guests book, length of stay, check-in weekday, website vs owner-added bookings, money still to come, and a month-by-month table.
-- **Guests:** every client with contact details, stays, nights, spend, last and next stay and favourite penthouse; searchable; new vs returning guests by month; top guests; repeat rate.
-- **Operations:** a 90-day timeline per penthouse, occupancy per penthouse, who is in the cottages now, arrivals and departures for the next 14 days, and maintenance ahead.
-- **Bookings:** add a booking (walk-in, Airbnb, phone), change dates, change status, delete, verify M-Pesa payments. Clashing dates are refused.
-- **Maintenance:** block a penthouse for one day or a range. Guests see those days as unavailable. You are warned if they overlap a booking.
-- **Prices:** nightly price and capacity per penthouse, deposit percentage and the Till/Paybill number. Changes show on the guest site immediately.
-- **Photos:** upload, delete and choose the cover photo for each penthouse.
-- **Excel reports:** download `.xlsx` files: full business report (Summary, Revenue and occupancy, Bookings, Clients, M-Pesa payments, Maintenance in one workbook), client list, bookings, M-Pesa payments, revenue and occupancy, maintenance log. Dates are real Excel dates, money has number formats, every sheet has filters and a frozen header, and totals are SUM formulas. Export buttons also sit on the Bookings, Revenue and Guests tabs.
+All `/api/admin/*` routes require `Authorization: Bearer <token>`.
 
-The exports contain guests' personal details. Keep the files secure and share them only with people who need them.
 
-## MySQL and MySQL Workbench
-All data is stored in MySQL, in the database named by `DB_NAME` (default `ewalel`). The server creates the tables the first time it starts (`server/schema.sql`) and adds the two sample penthouses to an empty database.
+## Guest website UI (new)
 
-**Looking at your data in MySQL Workbench:** click the **+** next to "MySQL Connections", set Hostname `127.0.0.1`, Port `3306`, Username `ewalel`, then Test Connection and OK. Open the connection and the `ewalel` schema. Tables: `units`, `unit_images`, `bookings`, `blocks` (maintenance), `mpesa_payments`, `settings`. Right-click a table and choose "Select Rows" to browse it, or use Table Data Export Wizard to save it as CSV or JSON.
+The default URL `/` is the guest website with the supplied Ewalel A-frame exterior and interior photographs, the teal/cream theme, cottage listings, and booking request form. `/admin` is the existing five-tab dashboard with maintenance history.
 
-Useful queries (File > New Query Tab):
-```sql
--- upcoming confirmed stays
-SELECT b.ref, u.name AS penthouse, b.check_in, b.check_out, b.name, b.phone, b.total
-FROM bookings b JOIN units u ON u.id = b.unit_id
-WHERE b.status = 'confirmed' AND b.check_out >= CURDATE() ORDER BY b.check_in;
+Guest cottage listings come from MySQL through `GET /api/cottages`; guest booking requests use `POST /api/bookings` and remain **pending**. The form does **not** charge a card or initiate M-PESA. The selected payment method is an indication only and is not persisted or processed. Staff must verify and record actual payments in Admin.
 
--- confirmed revenue by month of check-in
-SELECT DATE_FORMAT(check_in, '%Y-%m') AS month, SUM(total) AS revenue, COUNT(*) AS bookings
-FROM bookings WHERE status = 'confirmed' GROUP BY month ORDER BY month;
+Set `VITE_API_URL` to your server origin (for example `http://localhost:3001`). Start the MySQL database and backend before using live bookings. Photos are bundled in `client/public/images`.
 
--- payments waiting for you to verify
-SELECT ref, name, phone, receipt, deposit FROM bookings WHERE status = 'payment_submitted';
-```
-Use Workbench to look, query and export. Make changes (dates, prices, maintenance, photos) in the admin dashboard, which keeps the booking rules (no double bookings, holds, receipts) consistent. The `bookings` table also refuses a reused M-Pesa receipt.
 
-**Backups:** `mysqldump -u ewalel -p ewalel > ewalel-backup.sql` (or Workbench: Server > Data Export), plus a copy of `server/uploads/`. Restore with `mysql -u ewalel -p ewalel < ewalel-backup.sql`.
+## Rebuilt screenshot-matched guest UI (November 2026)
 
-**Moving over data from the earlier JSON-file version:** put the old `db.json` at `server/data/db.json` before the first start with an empty database and it is imported automatically. Or run `npm run import-json -- path/to/db.json` at any time (existing rows are kept, nothing is overwritten).
+The root `/` guest site uses the **same page structure as the supplied screenshot**: deep teal two-row header, full-width actual Ewalel A-frame exterior photograph without text overlay, cream welcome panel, full-width dark booking button, date/guest search controls, and actual interior gallery. Cottage listings are fetched from MySQL, and reservation conflicts are checked transactionally by the Express API. Admin is at `/admin`.
+
+**Important:** No live M-PESA or card gateway is installed. The guest payment-method selection is informational; a reservation is created as pending and only verified payments entered by authorized staff count toward revenue. Do not put real payment card details in this application.
+
+**Photo attribution:** Five photographs supplied by the user are included in `client/public/images`. Interior photographs are a shared gallery until the property owner associates them with particular cottages.
