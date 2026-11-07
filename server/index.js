@@ -1186,6 +1186,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import crypto from "node:crypto";
 
 
 
@@ -1409,6 +1410,41 @@ app.get("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
   res.json(await query("SELECT * FROM cottages ORDER BY id DESC"));
 }));
 
+// app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
+//   const {
+//     name,
+//     location,
+//     description = "",
+//     nightly_rate,
+//     capacity = 2,
+//     photo_url = ""
+//   } = req.body || {};
+
+//   if (!name?.trim() || !location?.trim() ||
+//       !positive(nightly_rate) || !positive(capacity) ||
+//       !Number.isInteger(Number(capacity))) {
+//     return res.status(400).json({
+//       error: "Valid name, location, rate and capacity are required"
+//     });
+//   }
+
+//   const result = await query(
+//     `INSERT INTO cottages
+//      (name, location, description, nightly_rate, capacity, photo_url)
+//      VALUES (?, ?, ?, ?, ?, ?)`,
+//     [
+//       name.trim(),
+//       location.trim(),
+//       description,
+//       Number(nightly_rate),
+//       Number(capacity),
+//       photo_url
+//     ]
+//   );
+
+//   res.status(201).json({ id: result.insertId, ok: true });
+// }));
+
 app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
   const {
     name,
@@ -1419,30 +1455,49 @@ app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
     photo_url = ""
   } = req.body || {};
 
-  if (!name?.trim() || !location?.trim() ||
-      !positive(nightly_rate) || !positive(capacity) ||
-      !Number.isInteger(Number(capacity))) {
+  const price = Number(nightly_rate);
+  const cap = Number(capacity);
+
+  if (
+    !name?.trim() ||
+    !location?.trim() ||
+    !Number.isSafeInteger(price) ||
+    price <= 0 ||
+    !Number.isSafeInteger(cap) ||
+    cap <= 0
+  ) {
     return res.status(400).json({
       error: "Valid name, location, rate and capacity are required"
     });
   }
 
-  const result = await query(
+  const id = "C" + crypto.randomBytes(8).toString("hex");
+
+  await query(
     `INSERT INTO cottages
-     (name, location, description, nightly_rate, capacity, photo_url)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+      (id, name, price, cap, beds, blurb,
+       sort_order, location, active, photo_url)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      id,
       name.trim(),
-      location.trim(),
+      price,
+      cap,
+      "",
       description,
-      Number(nightly_rate),
-      Number(capacity),
+      0,
+      location.trim(),
+      1,
       photo_url
     ]
   );
 
-  res.status(201).json({ id: result.insertId, ok: true });
+  res.status(201).json({
+    id,
+    ok: true
+  });
 }));
+
 
 // EDIT COTTAGE
 
@@ -2077,14 +2132,16 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
 }));
 
 app.get("/api/admin/bookings", auth, asyncRoute(async (req, res) => {
-  res.json(await query(`
+  const bookings = await query(`
     SELECT
       b.*,
       c.name AS cottage_name
     FROM bookings b
-    JOIN cottages c ON c.id = b.cottage_id
+    LEFT JOIN cottages c ON c.id = b.unit_id
     ORDER BY b.created_at DESC
-  `));
+  `);
+
+  res.json(bookings);
 }));
 
 app.patch(
@@ -2117,19 +2174,34 @@ app.patch(
 //      ORDER BY p.id DESC`
 //   ));
 // }));
+// app.get("/api/admin/payments", auth, asyncRoute(async (req, res) => {
+//   const payments = await query(`
+//     SELECT
+//       id,
+//       booking_id,
+//       payment_method,
+//       amount,
+//       transaction_reference,
+//       status,
+//       paid_at,
+//       created_at
+//     FROM payments
+//     ORDER BY id DESC
+//   `);
+
+//   res.json(payments);
+// }));
+
 app.get("/api/admin/payments", auth, asyncRoute(async (req, res) => {
   const payments = await query(`
     SELECT
-      id,
-      booking_id,
-      payment_method,
-      amount,
-      transaction_reference,
-      status,
-      paid_at,
-      created_at
-    FROM payments
-    ORDER BY id DESC
+      p.*,
+      p.payment_method AS method,
+      p.transaction_reference AS reference,
+      b.name AS guest_name
+    FROM payments p
+    LEFT JOIN bookings b ON b.id = p.booking_id
+    ORDER BY p.id DESC
   `);
 
   res.json(payments);
@@ -2187,28 +2259,47 @@ app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
 // FINANCE
 // ======================================================
 
+
 app.get("/api/admin/finance", auth, asyncRoute(async (req, res) => {
   const [revenueRows, methods, bookings] = await Promise.all([
-    query(
-      `SELECT COALESCE(SUM(amount),0) AS total
-       FROM payments WHERE status='completed'`
-    ),
-    query(
-      `SELECT method, COALESCE(SUM(amount),0) AS amount
-       FROM payments WHERE status='completed'
-       GROUP BY method`
-    ),
-    query(
-      `SELECT b.id, b.total_amount,
-       COALESCE(SUM(
-         CASE WHEN p.status='completed' THEN p.amount ELSE 0 END
-       ),0) AS paid
-       FROM bookings b
-       LEFT JOIN payments p ON p.booking_id=b.id
-       WHERE b.status!='cancelled'
-       GROUP BY b.id,b.total_amount`
-    )
+    query(`
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM payments
+      WHERE status = 'completed'
+    `),
+
+    query(`
+      SELECT
+        payment_method AS method,
+        COALESCE(SUM(amount), 0) AS amount
+      FROM payments
+      WHERE status = 'completed'
+      GROUP BY payment_method
+    `),
+
+    query(`
+      SELECT
+        b.id,
+        b.total AS total_amount,
+        COALESCE(
+          SUM(
+            CASE
+              WHEN p.status = 'completed'
+              THEN p.amount
+              ELSE 0
+            END
+          ), 0
+        ) AS paid
+      FROM bookings b
+      LEFT JOIN payments p ON p.booking_id = b.id
+      WHERE b.status != 'cancelled'
+      GROUP BY b.id, b.total
+    `)
   ]);
+
+  // Keep your existing finance calculations
+  // and res.json(...) response below this line.
+
 
   const outstanding = bookings.reduce(
     (sum, b) => sum + Math.max(
