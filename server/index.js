@@ -1295,8 +1295,16 @@ function positive(v) {
     Number(v) > 0;
 }
 
+// function validId(v) {
+//   return /^[1-9]\d*$/.test(String(v || ""));
+// }
 function validId(v) {
-  return /^[1-9]\d*$/.test(String(v || ""));
+  return typeof v === "string" &&
+    /^[a-zA-Z0-9_-]{1,20}$/.test(v);
+}
+
+function validCottageId(v) {
+  return /^[a-zA-Z0-9_-]{1,20}$/.test(String(v || ""));
 }
 
 function validDate(v) {
@@ -1500,58 +1508,110 @@ app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
 
 // EDIT COTTAGE
 
+
 async function updateCottage(req, res) {
-  if (!validId(req.params.id)) {
-    return res.status(400).json({ error: "Invalid cottage ID" });
+  const cottageId = String(req.params.id || "");
+
+  // Validate text-based cottage IDs
+  if (!/^[a-zA-Z0-9_-]{1,20}$/.test(cottageId)) {
+    return res.status(400).json({
+      error: "Invalid cottage ID"
+    });
   }
 
-  const allowed = [
-    "name", "location", "description",
-    "nightly_rate", "capacity", "photo_url", "active"
-  ];
+  // Map frontend fields to actual MySQL columns
+  const fieldMap = {
+    name: "name",
+    location: "location",
+    description: "blurb",
+    nightly_rate: "price",
+    capacity: "cap",
+    photo_url: "photo_url",
+    active: "active"
+  };
 
   const body = req.body || {};
-  const keys = Object.keys(body).filter(k => allowed.includes(k));
+
+  const keys = Object.keys(body).filter(
+    key => Object.hasOwn(fieldMap, key)
+  );
 
   if (!keys.length) {
-    return res.status(400).json({ error: "No editable fields" });
+    return res.status(400).json({
+      error: "No editable fields"
+    });
   }
 
-  if (keys.includes("name") && !String(body.name || "").trim()) {
-    return res.status(400).json({ error: "Name required" });
+  if (keys.includes("name") &&
+      !String(body.name || "").trim()) {
+    return res.status(400).json({
+      error: "Name required"
+    });
   }
 
-  if (keys.includes("location") && !String(body.location || "").trim()) {
-    return res.status(400).json({ error: "Location required" });
+  if (keys.includes("location") &&
+      !String(body.location || "").trim()) {
+    return res.status(400).json({
+      error: "Location required"
+    });
   }
 
-  if (keys.includes("nightly_rate") && !positive(body.nightly_rate)) {
-    return res.status(400).json({ error: "Invalid nightly rate" });
+  if (keys.includes("nightly_rate") &&
+      !positive(body.nightly_rate)) {
+    return res.status(400).json({
+      error: "Invalid nightly rate"
+    });
   }
 
   if (keys.includes("capacity") &&
       (!positive(body.capacity) ||
        !Number.isInteger(Number(body.capacity)))) {
-    return res.status(400).json({ error: "Invalid capacity" });
+    return res.status(400).json({
+      error: "Invalid capacity"
+    });
   }
 
   if (keys.includes("active") &&
       ![0, 1, true, false].includes(body.active)) {
-    return res.status(400).json({ error: "Invalid active status" });
+    return res.status(400).json({
+      error: "Invalid active status"
+    });
   }
 
+  const updates = keys.map(
+    key => `${fieldMap[key]} = ?`
+  ).join(", ");
+
+  const values = keys.map(key => {
+    if (key === "nightly_rate" ||
+        key === "capacity") {
+      return Number(body[key]);
+    }
+
+    if (key === "active") {
+      return Number(body[key]);
+    }
+
+    return body[key];
+  });
+
   const result = await query(
-    `UPDATE cottages SET ${keys.map(k => `${k}=?`).join(", ")}
-     WHERE id=?`,
-    [...keys.map(k => body[k]), req.params.id]
+    `UPDATE cottages SET ${updates} WHERE id = ?`,
+    [...values, cottageId]
   );
 
   if (!result.affectedRows) {
-    return res.status(404).json({ error: "Cottage not found" });
+    return res.status(404).json({
+      error: "Cottage not found"
+    });
   }
 
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    message: "Cottage updated successfully"
+  });
 }
+
 
 app.patch("/api/admin/cottages/:id", auth, asyncRoute(updateCottage));
 app.put("/api/admin/cottages/:id", auth, asyncRoute(updateCottage));
