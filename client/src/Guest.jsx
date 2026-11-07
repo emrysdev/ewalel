@@ -25,7 +25,7 @@ const API = (
 const PAYBILL = import.meta.env.VITE_MPESA_PAYBILL || "";
 
 // const HERO_IMAGE = "/images/exterior.jpeg";
-const HERO_IMAGE = "/images/ewalel-hero.png";
+const HERO_IMAGE = "/images/ewalel-hero1.png";
 const LOGO_IMAGE = "/images/ewalel-logo.png";
 
 const photos = [
