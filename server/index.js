@@ -2161,7 +2161,7 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
 
     const [conflicts] = await conn.execute(
       `SELECT id FROM bookings
-       WHERE cottage_id=?
+       WHERE unit_id=?
        AND status NOT IN ('cancelled')
        AND check_in < ?
        AND check_out > ?
