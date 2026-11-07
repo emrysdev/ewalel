@@ -2296,6 +2296,100 @@ app.get("/api/admin/payments", auth, asyncRoute(async (req, res) => {
   res.json(payments);
 }));
 
+// app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
+//   const {
+//     booking_id,
+//     method,
+//     amount,
+//     reference,
+//     status = "pending"
+//   } = req.body || {};
+
+//   if (!validId(booking_id) ||
+//       !["mpesa", "card", "cash"].includes(method) ||
+//       !positive(amount) ||
+//       !["pending", "completed"].includes(status)) {
+//     return res.status(400).json({ error: "Invalid payment" });
+//   }
+
+//   const bookings = await query(
+//     "SELECT id FROM bookings WHERE id=?",
+//     [booking_id]
+//   );
+
+//   if (!bookings.length) {
+//     return res.status(404).json({ error: "Booking not found" });
+//   }
+
+//   if (status === "completed" && !reference?.trim()) {
+//     return res.status(400).json({
+//       error: "Completed payments require a receipt/reference"
+//     });
+//   }
+
+//   // Submit M-PESA receipt for admin verification
+// app.post("/api/mpesa/submit-receipt", asyncRoute(async (req, res) => {
+//   const { booking_id, receipt_number } = req.body || {};
+
+//   const bookingId = String(booking_id || "").trim();
+//   const receipt = String(receipt_number || "").trim().toUpperCase();
+
+//   if (!bookingId || !/^[A-Z0-9]{8,20}$/.test(receipt)) {
+//     return res.status(400).json({
+//       error: "Valid booking ID and M-PESA receipt number are required"
+//     });
+//   }
+
+//   // Check that the booking exists
+//   const bookings = await query(
+//     "SELECT id FROM bookings WHERE id = ? LIMIT 1",
+//     [bookingId]
+//   );
+
+//   if (!bookings.length) {
+//     return res.status(404).json({
+//       error: "Booking not found"
+//     });
+//   }
+
+//   // Check whether the receipt has already been submitted
+//   const existing = await query(
+//     "SELECT trans_id FROM mpesa_payments WHERE receipt_number = ? LIMIT 1",
+//     [receipt]
+//   );
+
+//   if (existing.length) {
+//     return res.status(409).json({
+//       error: "This M-PESA receipt has already been submitted"
+//     });
+//   }
+
+//   // Save receipt as pending, NOT verified
+//   const transactionId = `MAN-${Date.now()}`;
+
+//   await query(
+//     `INSERT INTO mpesa_payments
+//       (trans_id, amount, account, receipt_number,
+//        booking_id, status, payment_source, received_at)
+//      VALUES (?, ?, ?, ?, ?, 'pending', 'manual', ?)`,
+//     [
+//       transactionId,
+//       0,
+//       "7845616",
+//       receipt,
+//       bookingId,
+//       Date.now()
+//     ]
+//   );
+
+//   res.status(201).json({
+//     ok: true,
+//     message: "Receipt submitted. Awaiting admin verification.",
+//     status: "pending"
+//   });
+// }));
+
+// ADMIN: Record a payment
 app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
   const {
     booking_id,
@@ -2305,34 +2399,46 @@ app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
     status = "pending"
   } = req.body || {};
 
-  if (!validId(booking_id) ||
-      !["mpesa", "card", "cash"].includes(method) ||
-      !positive(amount) ||
-      !["pending", "completed"].includes(status)) {
-    return res.status(400).json({ error: "Invalid payment" });
+  const bookingId = String(booking_id || "");
+
+  if (
+    !validId(bookingId) ||
+    !["mpesa", "card", "cash"].includes(method) ||
+    !positive(amount) ||
+    !["pending", "completed"].includes(status)
+  ) {
+    return res.status(400).json({ error: "Invalid payment details" });
   }
 
   const bookings = await query(
-    "SELECT id FROM bookings WHERE id=?",
-    [booking_id]
+    "SELECT id FROM bookings WHERE id = ?",
+    [bookingId]
   );
 
   if (!bookings.length) {
     return res.status(404).json({ error: "Booking not found" });
   }
 
-  if (status === "completed" && !reference?.trim()) {
+  if (status === "completed" && !String(reference || "").trim()) {
     return res.status(400).json({
-      error: "Completed payments require a receipt/reference"
+      error: "Completed payments require a transaction reference"
+    });
+  }
+
+  // Manual M-PESA receipts must be verified separately.
+  if (method === "mpesa" && status === "completed") {
+    return res.status(400).json({
+      error: "Verify the M-PESA receipt before recording payment"
     });
   }
 
   const result = await query(
     `INSERT INTO payments
-     (booking_id, method, amount, reference, status, paid_at)
+      (booking_id, payment_method, amount,
+       transaction_reference, status, paid_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [
-      booking_id,
+      bookingId,
       method,
       Number(amount),
       reference || null,
@@ -2341,8 +2447,89 @@ app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
     ]
   );
 
-  res.status(201).json({ id: result.insertId });
+  res.status(201).json({
+    ok: true,
+    id: result.insertId
+  });
 }));
+
+// GUEST: Submit M-PESA receipt for admin review
+// app.post("/api/mpesa/submit-receipt", asyncRoute(async (req, res) => {
+//   const bookingId = String(req.body?.booking_id || "").trim();
+//   const receipt = String(req.body?.receipt_number || "")
+//     .trim()
+//     .toUpperCase();
+
+//   if (
+//     !validId(bookingId) ||
+//     !/^[A-Z0-9]{8,20}$/.test(receipt)
+//   ) {
+//     return res.status(400).json({
+//       error: "Invalid booking ID or M-PESA receipt"
+//     });
+//   }
+
+//   const bookings = await query(
+//     "SELECT id FROM bookings WHERE id = ? LIMIT 1",
+//     [bookingId]
+//   );
+
+//   if (!bookings.length) {
+//     return res.status(404).json({
+//       error: "Booking not found"
+//     });
+//   }
+
+//   const existing = await query(
+//     `SELECT trans_id FROM mpesa_payments
+//      WHERE receipt_number = ? LIMIT 1`,
+//     [receipt]
+//   );
+
+//   if (existing.length) {
+//     return res.status(409).json({
+//       error: "This receipt has already been submitted"
+//     });
+//   }
+
+//   await query(
+//     `INSERT INTO mpesa_payments
+//       (trans_id, amount, account, receipt_number,
+//        booking_id, status, payment_source, received_at)
+//      VALUES (?, ?, ?, ?, ?, 'pending', 'manual', ?)`,
+//     [
+//       `MAN-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`,
+//       0,
+//       "7845616",
+//       receipt,
+//       bookingId,
+//       Date.now()
+//     ]
+//   );
+
+//   res.status(201).json({
+//     ok: true,
+//     status: "pending",
+//     message: "Receipt submitted for administrator verification"
+//   });
+// }));
+
+//   const result = await query(
+//     `INSERT INTO payments
+//      (booking_id, method, amount, reference, status, paid_at)
+//      VALUES (?, ?, ?, ?, ?, ?)`,
+//     [
+//       booking_id,
+//       method,
+//       Number(amount),
+//       reference || null,
+//       status,
+//       status === "completed" ? new Date() : null
+//     ]
+//   );
+
+//   res.status(201).json({ id: result.insertId });
+// }));
 
 // ======================================================
 // FINANCE
