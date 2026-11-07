@@ -1403,19 +1403,50 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
 // PUBLIC COTTAGES
 // ======================================================
 
+
 app.get("/api/cottages", asyncRoute(async (req, res) => {
-  res.json(await query(
-    "SELECT * FROM cottages WHERE active=1 ORDER BY id DESC"
-  ));
+  const cottages = await query(`
+    SELECT
+      id,
+      name,
+      location,
+      price,
+      price AS nightly_rate,
+      cap,
+      cap AS capacity,
+      blurb,
+      blurb AS description,
+      beds,
+      photo_url,
+      active
+    FROM cottages
+    WHERE active = 1
+    ORDER BY sort_order ASC, name ASC
+  `);
+
+  res.json(cottages);
 }));
+
 
 // ======================================================
 // ADMIN COTTAGES
 // ======================================================
 
+
 app.get("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
-  res.json(await query("SELECT * FROM cottages ORDER BY id DESC"));
+  const cottages = await query(`
+    SELECT
+      *,
+      price AS nightly_rate,
+      cap AS capacity,
+      blurb AS description
+    FROM cottages
+    ORDER BY sort_order ASC, name ASC
+  `);
+
+  res.json(cottages);
 }));
+
 
 // app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
 //   const {
@@ -1512,7 +1543,6 @@ app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
 async function updateCottage(req, res) {
   const cottageId = String(req.params.id || "");
 
-  // Validate text-based cottage IDs
   if (!/^[a-zA-Z0-9_-]{1,20}$/.test(cottageId)) {
     return res.status(400).json({
       error: "Invalid cottage ID"
