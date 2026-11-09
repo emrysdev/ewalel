@@ -1246,14 +1246,20 @@ function CustomerRetention({ bookings, payments, token, onError, onNotice, refre
   const [customers, setCustomers] = useState([]);
   const [events, setEvents] = useState([]);
   
+
 const stayStatus = (booking) => {
   const stay = events.find(
     (s) =>
-      String(s.booking_reference) === String(booking.ref)
+      (s.booking_id != null &&
+        String(s.booking_id) === String(booking.id)) ||
+      (s.booking_reference != null &&
+        booking.ref != null &&
+        String(s.booking_reference) === String(booking.ref))
   );
 
   return stay?.stay_status || "not_checked_in";
 };
+
 
   const [busy, setBusy] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -1266,7 +1272,7 @@ const stayStatus = (booking) => {
       api("/admin/mpesa", {}, token).catch(() => []),
       api("/admin/customer-notes", {}, token).catch(() => []),
       api("/admin/customers", {}, token).catch(() => []),
-      api("/admin/stays", {}, token).catch(() => [])
+      api("/admin/stays", {}, token)
     ]);
     setReceipts(Array.isArray(r) ? r : []);
     setNotes(Array.isArray(n) ? n : []);
@@ -1288,10 +1294,10 @@ const stayStatus = (booking) => {
     const ids = new Set(bs.map(b => String(b.id)));
     const ps = payments.filter(p => ids.has(String(p.booking_id)) && norm(p.status) === "completed");
     const total = ps.reduce((n, p) => n + Number(p.amount || 0), 0);
-    const completed = bs.filter(b => b.status === "checked_out").length;
+    const completed = bs.filter(b => stayStatus(b) === "checked_out").length;
     const cancellations = bs.filter(b => b.status === "cancelled").length;
     const next = bs.filter(b => ["confirmed", "checked_in"].includes(b.status) && new Date(b.check_out) >= new Date()).sort((a, b) => new Date(a.check_in) - new Date(b.check_in))[0];
-    const lastStay = bs.filter(b => b.status === "checked_out").sort((a, b) => new Date(b.check_out) - new Date(a.check_out))[0];
+    const lastStay = bs.filter(b => stayStatus(b) === "checked_out").sort((a, b) => new Date(b.check_out) - new Date(a.check_out))[0];
     const inactive = Boolean(lastStay && !next && (Date.now() - new Date(lastStay.check_out).getTime()) > 180 * 86400000);
     return { ...g, bookings: bs, total, completed, cancellations, next, lastStay, inactive, first: bs.at(-1)?.created_at, last: bs[0]?.created_at, segment: bs.length >= 2 ? "Returning" : "New" };
   });
@@ -1299,8 +1305,8 @@ const stayStatus = (booking) => {
     if (segment === "returning" && g.bookings.length < 2) return false;
     if (segment === "new" && g.bookings.length !== 1) return false;
     if (segment === "inactive" && !g.inactive) return false;
-    if (segment === "in-house" && !g.bookings.some(b => b.status === "checked_in")) return false;
-    if (statusFilter !== "all" && !g.bookings.some(b => b.status === statusFilter)) return false;
+    if (segment === "in-house" &&!g.bookings.some(b => stayStatus(b) === "checked_in")) return false;
+    if (statusFilter !== "all" &&!g.bookings.some(b =>["checked_in", "checked_out"].includes(statusFilter)? stayStatus(b) === statusFilter: b.status === statusFilter)) return false;
     if (period !== "all" && !g.bookings.some(b => new Date(b.created_at) > new Date(Date.now() - Number(period) * 86400000))) return false;
     return [g.name, g.phone, g.email, ...g.bookings.map(b => b.ref || b.id)].join(" ").toLowerCase().includes(query.toLowerCase());
   });
@@ -1320,8 +1326,7 @@ const stayStatus = (booking) => {
     <style>{`main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% - 40px)!important;margin-left:auto!important;margin-right:auto!important;padding-left:0!important;padding-right:0!important}@media(max-width:700px){main:has(> .breadcrumb):has(.ew-crm){width:calc(100% - 24px)!important}}.ew-crm *{box-sizing:border-box}.ew-crm button,.ew-crm input,.ew-crm select,.ew-crm textarea{font:inherit}.ew-crm button{cursor:pointer}.ew-crm button:disabled{opacity:.5;cursor:not-allowed}.ew-crm .crm-btn{border:1px solid #cbd8db;border-radius:10px;background:#fff;color:#173a40;padding:10px 15px;font-weight:600}.ew-crm .crm-primary{background:#103f43;color:#fff;border-color:#103f43}.ew-crm .crm-btn:hover:not(:disabled){filter:brightness(.94)}.ew-crm .crm-input{width:100%;padding:11px 13px;border:1px solid #cbd9db;border-radius:9px;background:#fff;color:#14383e}.ew-crm .crm-tabs{display:flex;gap:10px;flex-wrap:wrap}.ew-crm .crm-tabs button{flex:1;border:1px solid #d8e2e4;background:#fff;border-radius:26px;padding:11px;white-space:nowrap}.ew-crm .crm-tabs button.active{background:#104348;color:#fff}.ew-crm .crm-person{width:100%;text-align:left;border:1px solid #d9e5e2;border-radius:13px;padding:12px;background:#fff;margin:6px 0;display:flex;align-items:center;gap:12px}.ew-crm .crm-person.active{background:#e6f4ee;border-color:#64b6a3}.ew-crm .crm-avatar{width:50px;height:50px;border-radius:50%;background:#dceee4;display:grid;place-items:center;font-size:21px;color:#126047;flex-shrink:0}.ew-crm .crm-layout{display:grid;grid-template-columns:minmax(300px, 30%) minmax(0, 1fr);gap:20px;align-items:start}.ew-crm .crm-layout>aside,.ew-crm .crm-layout>main{min-width:0}.ew-crm .crm-layout>main{min-height:0}.ew-crm .crm-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.ew-crm .crm-actions{display:flex;gap:8px;flex-wrap:wrap}.ew-crm .crm-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}.ew-crm .crm-grid>section,.ew-crm .crm-grid>div{min-width:0}.ew-crm .crm-detail{padding:11px 0;border-bottom:1px solid #e5eceb;display:flex;justify-content:space-between;gap:15px}.ew-crm .crm-muted{color:#668086}.ew-crm .crm-mini{font-size:12px}.ew-crm .crm-booking{padding:15px;border:1px solid #d9e5e2;border-radius:12px;margin:12px 0}.ew-crm .crm-chip{border-radius:20px;padding:5px 9px;font-size:11px;background:#e6f3ec;color:#146340;font-weight:700}@media(max-width:1180px){.ew-crm .crm-grid{grid-template-columns:1fr}}@media(max-width:1050px){.ew-crm .crm-kpis{grid-template-columns:repeat(3,1fr)}}@media(max-width:750px){.ew-crm .crm-layout,.ew-crm .crm-grid{grid-template-columns:1fr}.ew-crm .crm-kpis{grid-template-columns:repeat(2,1fr)}.ew-crm .crm-head{flex-direction:column;align-items:flex-start!important}}`}</style>
     <div style={{ ...card, marginBottom: 18 }}>
       <div className="crm-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 15, marginBottom: 24 }}><div><div style={{ fontSize: 12, letterSpacing: 2, color: "#b96a2d", fontWeight: 700 }}>EW A L E L  /  CUSTOMER RELATIONSHIPS</div><h1 style={{ fontSize: 30, margin: "8px 0 3px" }}>Customer Retention</h1><div className="crm-muted">Manage guests, track bookings and payments, and build lasting customer relationships.</div></div><div className="crm-actions"><button className="crm-btn crm-primary" onClick={() => setAddOpen(true)}>＋ Add Customer</button><button className="crm-btn" onClick={csv}>↓ Export (CSV)</button><button className="crm-btn" onClick={() => setInsights(v => !v)}>▥ Retention Insights</button></div></div>
-      <div className="crm-kpis">{stat("Total customers", profiles.length, T.green)}{stat("Total bookings", bookings.length, T.blue)}{stat("Completed stays", bookings.filter(b => b.status === "checked_out").length, T.green)}{stat("Returning guests", `${profiles.filter(g => g.bookings.length >= 2).length} (${profiles.length ? Math.round(100 * profiles.filter(g => g.bookings.length >= 2).length / profiles.length) : 0}%)`, T.purple)}{stat("Cancellations", bookings.filter(b => b.status === "cancelled").length, T.red)}{stat("Verified spending", fmt(profiles.reduce((n, g) => n + g.total, 0)), T.gold)}</div>
-      {insights && <p style={{ marginTop: 16, color: "#385c62" }}>Returning customer rate is based on multiple bookings linked by phone or email. Spending counts completed payments only. Use booking history to identify guests eligible for a consent-based follow-up.</p>}
+      <div className="crm-kpis">{stat("Total customers", profiles.length, T.green)}{stat("Total bookings", bookings.length, T.blue)}{stat("Completed stays", bookings.filter(b => stayStatus(b) === "checked_out").length, T.green)}{stat("Returning guests", `${profiles.filter(g => g.bookings.length >= 2).length} (${profiles.length ? Math.round(100 * profiles.filter(g => g.bookings.length >= 2).length / profiles.length) : 0}%)`, T.purple)}{stat("Cancellations", bookings.filter(b => b.status === "cancelled").length, T.red)}{stat("Verified spending", fmt(profiles.reduce((n, g) => n + g.total, 0)), T.gold)}</div>{insights && <p style={{ marginTop: 16, color: "#385c62" }}>Returning customer rate is based on multiple bookings linked by phone or email. Spending counts completed payments only. Use booking history to identify guests eligible for a consent-based follow-up.</p>}
     </div>
     <div className="crm-layout"><aside style={card}>
       <input className="crm-input" aria-label="Search customers" placeholder="Search name, phone, email or booking" value={query} onChange={e => setQuery(e.target.value)} />
@@ -1426,7 +1431,8 @@ const stayStatus = (booking) => {
         : "Check In Guest"}
     </button>
   )}
-{b.status === "checked_in" && <button disabled={busy} className="crm-btn crm-primary" onClick={() => stayAction(b, "check-out")}>Check Out Guest</button>}{events.filter(e => String(e.booking_id) === String(b.id)).map(e => <p key={e.id} className="crm-muted crm-mini">{e.event_type.replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div> })}{!current.bookings.length && <p>No bookings yet.</p>}</div>}
+{/* {b.status === "checked_in" && <button disabled={busy} className="crm-btn crm-primary" onClick={() => stayAction(b, "check-out")}>Check Out Guest</button>} */}
+{events.filter(e => String(e.booking_id) === String(b.id)).map(e => <p key={e.id} className="crm-muted crm-mini">{e.event_type.replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div> })}{!current.bookings.length && <p>No bookings yet.</p>}</div>}
         {tab === "Activity & Notes" && <div><h3>Customer Activity & Notes</h3><form onSubmit={saveNote}><textarea className="crm-input" rows={3} placeholder="Add an internal customer service note" value={noteText} onChange={e => setNoteText(e.target.value)} required /><button className="crm-btn crm-primary" style={{ marginTop: 10 }} disabled={busy || !noteText.trim()}>Save Note</button></form><div style={{ marginTop: 18 }}>{notes.filter(n => customerRow && String(n.customer_id) === String(customerRow.id)).map(n => <div className="crm-booking" key={n.id}><p>{n.note}</p><small className="crm-muted">{date(n.created_at)}</small></div>)}{!customerRow && <p className="crm-muted">No saved customer notes.</p>}</div></div>}
         {tab === "Preferences" && <form onSubmit={savePreferences}><h3>Guest Preferences</h3><label>Preferred cottage<input className="crm-input" value={pref.preferred_cottage} onChange={e => setPref({ ...pref, preferred_cottage: e.target.value })} /></label><label style={{ display: "block", marginTop: 14 }}>Special requests<textarea className="crm-input" rows={4} value={pref.special_requests} onChange={e => setPref({ ...pref, special_requests: e.target.value })} /></label><label style={{ display: "flex", alignItems: "center", gap: 9, margin: "14px 0" }}><input type="checkbox" checked={pref.marketing_consent} onChange={e => setPref({ ...pref, marketing_consent: e.target.checked })} /> Marketing consent recorded</label><p className="crm-muted crm-mini">Only tick this when the guest has explicitly consented. This does not send messages.</p><button className="crm-btn crm-primary" disabled={busy}>Save Preferences</button></form>}
         {tab === "Loyalty" && <section style={card}><h3>Customer Loyalty</h3><div className="crm-grid">{stat("Total bookings", current.bookings.length, T.blue)}{stat("Verified spending", fmt(current.total), T.gold)}</div><p style={{ marginTop: 20 }}>Customer segment: <b>{current.segment}</b></p><p className="crm-muted">Loyalty information is calculated from actual reservations and completed payments. No discount or loyalty points have been issued.</p><p>Marketing consent: <b>{customerRow?.marketing_consent ? "Recorded" : "Not recorded"}</b></p></section>}

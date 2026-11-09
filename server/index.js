@@ -1197,6 +1197,8 @@ import rateLimit from "express-rate-limit";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+
+
 const app = express();
 
 app.get("/api/debug", (req, res) => {
@@ -1227,11 +1229,16 @@ app.get("/api/debug", (req, res) => {
 // Security headers
 app.disable("x-powered-by");
 
+
 app.use(
   helmet({
-    contentSecurityPolicy: false
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: {
+      policy: "cross-origin"
+    }
   })
 );
+
 
 // General API rate limiting
 const apiLimiter = rateLimit({
@@ -1272,10 +1279,7 @@ if (!JWT_SECRET || JWT_SECRET.length < 20) {
 // React frontend production build
 // const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const clientDist = path.resolve(
-  __dirname,
-  "../client/dist"
-);
+const clientDist = path.resolve(__dirname, "../client/dist");
 
 app.use(cors({
   origin: process.env.CLIENT_ORIGIN || "http://localhost:5173"
@@ -1616,7 +1620,16 @@ app.get("/api/cottages", asyncRoute(async (req, res) => {
 app.use(express.json());
 
 // 2. Static uploads
-app.use("/uploads", express.static(uploadDir));
+
+app.use(
+  "/uploads",
+  (req, res, next) => {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    next();
+  },
+  express.static(uploadDir)
+);
+
 
 app.get("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
   const cottages = await query(`
@@ -1635,11 +1648,11 @@ app.get("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
 // 4. Other API routes go here
 
 // 5. 404 handler — LAST
-app.use((req, res) => {
-  res.status(404).json({
-    error: "API endpoint not found"
-  });
-});
+// app.use((req, res) => {
+//   res.status(404).json({
+//     error: "API endpoint not found"
+//   });
+// });
 
 
 // app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
@@ -3398,9 +3411,9 @@ app.post("/api/admin/customer-notes",auth,asyncRoute(async(req,res)=>{
   res.status(201).json({id:result.insertId});
 }));
 
-app.use((req, res) => {
-  res.status(404).json({ error: "API endpoint not found" });
-});
+// app.use((req, res) => {
+//   res.status(404).json({ error: "API endpoint not found" });
+// });
 
 app.use((err, req, res, next) => {
   console.error(err);
@@ -3496,6 +3509,18 @@ app.use((err, req, res, next) => {
 
   res.status(500).json({
     error: "Server error; check server logs"
+  });
+});
+
+app.use(express.static(clientDist));
+
+app.get("/{*path}", (req, res, next) => {
+  if (req.path === "/api" || req.path.startsWith("/api/")) {
+    return next();
+  }
+
+  res.sendFile(path.join(clientDist, "index.html"), err => {
+    if (err) next(err);
   });
 });
 

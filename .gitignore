@@ -16,3 +16,6 @@ uploads/
 
 *.log
 .DS_Store
+
+client/dist/
+server/uploads/
