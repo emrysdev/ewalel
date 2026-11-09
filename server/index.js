@@ -1197,6 +1197,25 @@ import rateLimit from "express-rate-limit";
 
 
 const app = express();
+
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
+
+// Serve uploaded cottage photographs
+
+
+// const UPLOADS_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH
+//   ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, "uploads")
+//   : path.join(
+//       path.dirname(fileURLToPath(import.meta.url)),
+//       "uploads"
+//     );
+
+// // Serve uploaded photographs
+// app.use("/uploads", express.static(UPLOADS_DIR));
+
+
+
 // Security headers
 app.disable("x-powered-by");
 
@@ -1209,15 +1228,19 @@ app.use(
 // General API rate limiting
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 150,
-  standardHeaders: "draft-8",
+  limit: process.env.NODE_ENV === "production" ? 100 : 2000,
+  standardHeaders: "draft-7",
   legacyHeaders: false,
   message: {
     error: "Too many requests. Please try again later."
   }
 });
 
-app.use("/api", apiLimiter);
+// app.use("/api", apiLimiter);
+// Apply the general API rate limiter in production only
+if (process.env.NODE_ENV === "production") {
+  app.use("/api", apiLimiter);
+}
 
 // Stricter login protection
 const loginLimiter = rateLimit({
@@ -1271,8 +1294,32 @@ async function query(sql, params = []) {
   return rows;
 }
 
+
+
 const asyncRoute = fn => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
+// TEMPORARY: Check backend database connection
+app.get("/api/debug/database", asyncRoute(async (req, res) => {
+
+  const database = await query(
+    "SELECT DATABASE() AS db, @@hostname AS host, @@port AS port"
+  );
+
+  const columns = await query(
+    "SHOW COLUMNS FROM cottages"
+  );
+
+  const cottages = await query(
+    "SELECT * FROM cottages LIMIT 10"
+  );
+
+  res.json({
+    database: database[0],
+    columns,
+    cottages
+  });
+
+}));
 
 function auth(req, res, next) {
   const token = (req.headers.authorization || "")
@@ -1319,10 +1366,16 @@ function validDate(v) {
 // ======================================================
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
+
 const uploadDir = path.resolve(
-  process.env.UPLOAD_DIR || path.join(serverDir, "uploads")
+  process.env.UPLOAD_DIR ||
+  (process.env.RAILWAY_VOLUME_MOUNT_PATH
+    ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, "uploads")
+    : path.join(serverDir, "uploads"))
 );
+
 const cottageUploadDir = path.join(uploadDir, "cottages");
+
 
 await fs.mkdir(cottageUploadDir, { recursive: true });
 
@@ -2106,36 +2159,58 @@ app.patch(
 // BOOKINGS
 // ======================================================
 
+// ======================================================
+// PUBLIC BOOKINGS
+// ======================================================
+
 app.post("/api/bookings", asyncRoute(async (req, res) => {
   const {
     cottage_id,
     guest_name,
     guest_email,
-    guest_phone = "",
+    guest_phone,
     check_in,
     check_out,
-    guests
+    guests,
+    notes = ""
   } = req.body || {};
 
-  if (!validId(cottage_id) ||
-      !validDate(check_in) || !validDate(check_out)) {
-    return res.status(400).json({ error: "Invalid booking dates" });
+  const cottageId = String(cottage_id || "").trim();
+  const name = String(guest_name || "").trim();
+  const email = String(guest_email || "").trim();
+  const phone = String(guest_phone || "").trim();
+
+  if (
+    !validCottageId(cottageId) ||
+    !validDate(check_in) ||
+    !validDate(check_out) ||
+    !name ||
+    name.length > 80 ||
+    !email.includes("@") ||
+    email.length > 100 ||
+    !phone ||
+    phone.length > 20 ||
+    !Number.isInteger(Number(guests)) ||
+    Number(guests) < 1
+  ) {
+    return res.status(400).json({
+      error: "Please provide valid booking details"
+    });
   }
 
   const nights = Math.round(
-    (Date.parse(check_out + "T12:00:00Z") -
-     Date.parse(check_in + "T12:00:00Z")) / 86400000
+    (
+      Date.parse(check_out + "T12:00:00Z") -
+      Date.parse(check_in + "T12:00:00Z")
+    ) / 86400000
   );
 
-  if (!guest_name?.trim() ||
-      !guest_email?.includes("@") ||
-      !Number.isInteger(nights) ||
-      nights < 1 ||
-      check_in < new Date().toISOString().slice(0, 10) ||
-      !positive(guests) ||
-      !Number.isInteger(Number(guests))) {
+  if (
+    nights < 1 ||
+    check_in < new Date().toISOString().slice(0, 10)
+  ) {
     return res.status(400).json({
-      error: "Invalid booking details"
+      error: "Please select valid booking dates"
     });
   }
 
@@ -2145,73 +2220,106 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
     await conn.beginTransaction();
 
     const [cottages] = await conn.execute(
-      "SELECT * FROM cottages WHERE id=? FOR UPDATE",
-      [cottage_id]
+      "SELECT * FROM cottages WHERE id = ? FOR UPDATE",
+      [cottageId]
     );
 
     const cottage = cottages[0];
 
-    if (!cottage || !cottage.active ||
-        Number(guests) > cottage.capacity) {
+  console.log("BOOKING DEBUG:", {
+  cottageId,
+  cottageFound: !!cottage,
+  active: cottage?.active,
+  capacity: cottage?.cap,
+  guests: Number(guests)
+});
+    if (
+      !cottage ||
+      !cottage.active ||
+      Number(guests) > Number(cottage.cap)
+    ) {
       await conn.rollback();
+
       return res.status(400).json({
         error: "Cottage unavailable or capacity exceeded"
       });
     }
 
     const [conflicts] = await conn.execute(
-      `SELECT id FROM bookings
-       WHERE unit_id=?
-       AND status NOT IN ('cancelled')
+      `SELECT id
+       FROM bookings
+       WHERE unit_id = ?
+       AND status <> 'cancelled'
        AND check_in < ?
        AND check_out > ?
        LIMIT 1`,
-      [cottage_id, check_out, check_in]
+      [cottageId, check_out, check_in]
     );
 
-    const [repairs] = await conn.execute(
-      `SELECT id FROM maintenance
-       WHERE cottage_id=?
-       AND status IN ('scheduled','in_progress')
-       AND scheduled_date >= ?
-       AND scheduled_date < ?
-       LIMIT 1`,
-      [cottage_id, check_in, check_out]
-    );
-
-    if (conflicts.length || repairs.length) {
+    if (conflicts.length) {
       await conn.rollback();
+
       return res.status(409).json({
-        error: "Cottage unavailable for these dates"
+        error: "Cottage is already booked for these dates"
       });
     }
 
-    const total = nights * Number(cottage.nightly_rate);
+    const total = nights * Number(cottage.price);
 
-    const [result] = await conn.execute(
-      `INSERT INTO bookings
-       (cottage_id, guest_name, guest_email, guest_phone,
-        check_in, check_out, guests, total_amount)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        cottage_id,
-        guest_name.trim(),
-        guest_email.trim(),
-        guest_phone,
+    const bookingId =
+      "B" + crypto.randomBytes(8).toString("hex");
+
+    const bookingRef =
+      "EW" + crypto.randomBytes(5).toString("hex").toUpperCase();
+
+    await conn.execute(
+      `INSERT INTO bookings (
+        id,
+        ref,
+        unit_id,
         check_in,
         check_out,
+        nights,
+        guests,
+        name,
+        phone,
+        email,
+        notes,
+        total,
+        deposit,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        bookingId,
+        bookingRef,
+        cottageId,
+        check_in,
+        check_out,
+        nights,
         Number(guests),
-        total
+        name,
+        phone,
+        email,
+        String(notes || "").slice(0, 300),
+        total,
+        0,
+        Date.now()
       ]
     );
 
     await conn.commit();
 
     res.status(201).json({
-      id: result.insertId,
+      ok: true,
+      id: bookingId,
+      ref: bookingRef,
       total,
-      status: "pending"
+      nights,
+      status: "awaiting_payment",
+      message: "Booking created. Please complete payment."
     });
+
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -2233,23 +2341,70 @@ app.get("/api/admin/bookings", auth, asyncRoute(async (req, res) => {
   res.json(bookings);
 }));
 
+// 
+
+
 app.patch(
   "/api/admin/bookings/:id",
   auth,
   asyncRoute(async (req, res) => {
-    if (!["pending", "confirmed", "cancelled",
-          "checked_in", "checked_out"].includes(req.body?.status)) {
-      return res.status(400).json({ error: "Invalid status" });
+
+    const allowedStatuses = [
+      "awaiting_payment",
+      "payment_submitted",
+      "confirmed",
+      "cancelled"
+    ];
+
+    const status = req.body?.status;
+
+    // Validate booking status
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        error: "Invalid booking status"
+      });
     }
 
-    await query(
-      "UPDATE bookings SET status=? WHERE id=?",
-      [req.body.status, req.params.id]
+    // Prevent manual confirmation without payment verification
+    if (status === "confirmed") {
+      return res.status(403).json({
+        error: "Confirm bookings through the payment verification process"
+      });
+    }
+
+    // Validate booking ID
+    const bookingId = String(req.params.id || "");
+
+    if (!validId(bookingId)) {
+      return res.status(400).json({
+        error: "Invalid booking ID"
+      });
+    }
+
+    // Prevent changing an already confirmed booking through this route
+    const result = await query(
+      `UPDATE bookings
+       SET status = ?
+       WHERE id = ?
+       AND status IN ('awaiting_payment', 'payment_submitted')`,
+      [status, bookingId]
     );
 
-    res.json({ ok: true });
+    if (!result.affectedRows) {
+      return res.status(409).json({
+        error: "Booking not found or status change not permitted"
+      });
+    }
+
+    res.json({
+      ok: true,
+      booking_id: bookingId,
+      status
+    });
+
   })
 );
+
 
 // ======================================================
 // PAYMENTS
@@ -2454,82 +2609,251 @@ app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
 }));
 
 // GUEST: Submit M-PESA receipt for admin review
-// app.post("/api/mpesa/submit-receipt", asyncRoute(async (req, res) => {
-//   const bookingId = String(req.body?.booking_id || "").trim();
-//   const receipt = String(req.body?.receipt_number || "")
-//     .trim()
-//     .toUpperCase();
 
-//   if (
-//     !validId(bookingId) ||
-//     !/^[A-Z0-9]{8,20}$/.test(receipt)
-//   ) {
-//     return res.status(400).json({
-//       error: "Invalid booking ID or M-PESA receipt"
-//     });
-//   }
+app.post("/api/mpesa/submit-receipt", asyncRoute(async (req, res) => {
+  const bookingId = String(req.body?.booking_id || "").trim();
+  const receipt = String(req.body?.receipt_number || "")
+    .trim()
+    .toUpperCase();
 
-//   const bookings = await query(
-//     "SELECT id FROM bookings WHERE id = ? LIMIT 1",
-//     [bookingId]
-//   );
+  if (!bookingId || !/^[A-Z0-9]{8,20}$/.test(receipt)) {
+    return res.status(400).json({
+      error: "Invalid booking ID or M-PESA receipt"
+    });
+  }
 
-//   if (!bookings.length) {
-//     return res.status(404).json({
-//       error: "Booking not found"
-//     });
-//   }
+  const bookings = await query(
+    `SELECT id, status
+     FROM bookings
+     WHERE id = ?
+     LIMIT 1`,
+    [bookingId]
+  );
 
-//   const existing = await query(
-//     `SELECT trans_id FROM mpesa_payments
-//      WHERE receipt_number = ? LIMIT 1`,
-//     [receipt]
-//   );
+  if (!bookings.length) {
+    return res.status(404).json({
+      error: "Booking not found"
+    });
+  }
 
-//   if (existing.length) {
-//     return res.status(409).json({
-//       error: "This receipt has already been submitted"
-//     });
-//   }
+  if (["confirmed", "cancelled"].includes(bookings[0].status)) {
+    return res.status(409).json({
+      error: "This booking cannot accept a new receipt"
+    });
+  }
 
-//   await query(
-//     `INSERT INTO mpesa_payments
-//       (trans_id, amount, account, receipt_number,
-//        booking_id, status, payment_source, received_at)
-//      VALUES (?, ?, ?, ?, ?, 'pending', 'manual', ?)`,
-//     [
-//       `MAN-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`,
-//       0,
-//       "7845616",
-//       receipt,
-//       bookingId,
-//       Date.now()
-//     ]
-//   );
+  const existing = await query(
+    `SELECT trans_id
+     FROM mpesa_payments
+     WHERE receipt_number = ?
+     LIMIT 1`,
+    [receipt]
+  );
 
-//   res.status(201).json({
-//     ok: true,
-//     status: "pending",
-//     message: "Receipt submitted for administrator verification"
-//   });
-// }));
+  if (existing.length) {
+    return res.status(409).json({
+      error: "This receipt has already been submitted"
+    });
+  }
 
-//   const result = await query(
-//     `INSERT INTO payments
-//      (booking_id, method, amount, reference, status, paid_at)
-//      VALUES (?, ?, ?, ?, ?, ?)`,
-//     [
-//       booking_id,
-//       method,
-//       Number(amount),
-//       reference || null,
-//       status,
-//       status === "completed" ? new Date() : null
-//     ]
-//   );
+  const transactionId =
+    `MAN-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
 
-//   res.status(201).json({ id: result.insertId });
-// }));
+  await query(
+    `INSERT INTO mpesa_payments
+      (trans_id, amount, account, receipt_number,
+       booking_id, status, payment_source, received_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', 'manual', ?)`,
+    [
+      transactionId,
+      0,
+      "7845616",
+      receipt,
+      bookingId,
+      Date.now()
+    ]
+  );
+
+  await query(
+    `UPDATE bookings
+     SET status = 'payment_submitted'
+     WHERE id = ?
+       AND status = 'awaiting_payment'`,
+    [bookingId]
+  );
+
+  return res.status(201).json({
+    ok: true,
+    booking_id: bookingId,
+    receipt_number: receipt,
+    status: "pending",
+    message: "Receipt submitted for administrator verification"
+  });
+}));
+
+
+ // ADMIN: View M-PESA receipts awaiting verification
+app.get("/api/admin/mpesa", auth, asyncRoute(async (req, res) => {
+  const receipts = await query(`
+    SELECT
+      m.trans_id,
+      m.receipt_number,
+      m.booking_id,
+      m.amount,
+      m.status,
+      m.payment_source,
+      m.received_at,
+      m.reviewed_at,
+      b.ref AS booking_reference,
+      b.name AS guest_name,
+      b.phone AS guest_phone,
+      b.total AS booking_total
+    FROM mpesa_payments m
+    LEFT JOIN bookings b ON b.id = m.booking_id
+    ORDER BY m.received_at DESC
+  `);
+
+  res.json(receipts);
+}));
+
+
+app.post("/api/admin/mpesa/verify", auth, asyncRoute(async (req, res) => {
+  const receipt = String(req.body?.receipt_number || "")
+    .trim()
+    .toUpperCase();
+
+  const amount = Number(req.body?.verified_amount);
+  const evidence = String(req.body?.verification_reference || "").trim();
+
+  if (
+    !/^[A-Z0-9]{8,20}$/.test(receipt) ||
+    !Number.isSafeInteger(amount) ||
+    amount <= 0 ||
+    evidence.length < 5
+  ) {
+    return res.status(400).json({
+      error: "Valid receipt, verified amount and verification reference required"
+    });
+  }
+
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const [receipts] = await conn.execute(
+      `SELECT * FROM mpesa_payments
+       WHERE receipt_number = ?
+       FOR UPDATE`,
+      [receipt]
+    );
+
+    if (receipts.length !== 1 || receipts[0].status !== "pending") {
+      await conn.rollback();
+      return res.status(409).json({
+        error: "Receipt not found or already reviewed"
+      });
+    }
+
+    const payment = receipts[0];
+
+    const [bookings] = await conn.execute(
+      `SELECT id, total, status
+       FROM bookings
+       WHERE id = ?
+       FOR UPDATE`,
+      [payment.booking_id]
+    );
+
+    if (
+      bookings.length !== 1 ||
+      !["awaiting_payment", "payment_submitted"].includes(bookings[0].status)
+    ) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: "Booking cannot be confirmed"
+      });
+    }
+
+    const booking = bookings[0];
+
+    const [previousPayments] = await conn.execute(
+      `SELECT COALESCE(SUM(amount), 0) AS paid
+       FROM payments
+       WHERE booking_id = ? AND status = 'completed'`,
+      [booking.id]
+    );
+
+    const outstanding =
+      Number(booking.total) - Number(previousPayments[0].paid);
+
+    if (outstanding <= 0 || amount !== outstanding) {
+      await conn.rollback();
+      return res.status(400).json({
+        error: "Verified amount must equal the outstanding booking balance",
+        outstanding
+      });
+    }
+
+    const [duplicates] = await conn.execute(
+      `SELECT id FROM payments
+       WHERE transaction_reference = ?
+         AND payment_method = 'mpesa'
+       LIMIT 1`,
+      [receipt]
+    );
+
+    if (duplicates.length) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: "This receipt has already been recorded"
+      });
+    }
+
+    await conn.execute(
+      `UPDATE mpesa_payments
+       SET amount = ?, status = 'verified', reviewed_at = NOW()
+       WHERE trans_id = ?`,
+      [amount, payment.trans_id]
+    );
+
+    await conn.execute(
+      `INSERT INTO payments
+       (booking_id, payment_method, amount,
+        transaction_reference, receipt_number,
+        status, paid_at)
+       VALUES (?, 'mpesa', ?, ?, ?, 'completed', NOW())`,
+      [booking.id, amount, receipt, receipt]
+    );
+
+    await conn.execute(
+      `UPDATE bookings
+       SET status = 'confirmed',
+           receipt_number = ?,
+           confirmed_at = ?
+       WHERE id = ?`,
+      [receipt, Date.now(), booking.id]
+    );
+
+    await conn.commit();
+
+    res.json({
+      ok: true,
+      booking_id: booking.id,
+      receipt_number: receipt,
+      verified_amount: amount,
+      verification_reference: evidence,
+      status: "confirmed",
+      message: "Payment recorded and booking confirmed"
+    });
+
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}));
 
 // ======================================================
 // FINANCE
@@ -2580,7 +2904,8 @@ app.get("/api/admin/finance", auth, asyncRoute(async (req, res) => {
   const outstanding = bookings.reduce(
     (sum, b) => sum + Math.max(
       0,
-      Number(b.total_amount) - Number(b.paid)
+      // Number(b.total_amount) - Number(b.paid)
+      Number(b.total) - Number(b.paid)
     ),
     0
   );
