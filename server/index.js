@@ -1194,7 +1194,8 @@ import rateLimit from "express-rate-limit";
 // ======================================================
 
 
-
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 
@@ -3491,8 +3492,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+
 
 const frontendDist = path.resolve(__dirname, "../client/dist");
 
