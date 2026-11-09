@@ -1504,11 +1504,7 @@ console.log("COTTAGE DIRECTORY:", cottageUploadDir);
 const files = await fs.readdir(cottageUploadDir);
 console.log("AVAILABLE PHOTOS:", files);
 
-app.use((req, res) => {
-  res.status(404).json({
-    error: "API endpoint not found"
-  });
-});
+
 
 app.use("/uploads", express.static(uploadDir, {
   index: false,
@@ -3364,68 +3360,6 @@ app.get("/api/admin/finance", auth, asyncRoute(async (req, res) => {
   });
 }));
 
-// ======================================================
-// SERVE EWALEL REACT FRONTEND
-// ======================================================
-
-// Serve compiled React assets
-app.use(express.static(clientDist));
-
-// Serve React pages and support browser refreshes
-app.use((req, res, next) => {
-  // Keep API requests separate from frontend routes
-  if (req.path.startsWith("/api/")) {
-    return next();
-  }
-
-  // Only serve the React app for page requests
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    return next();
-  }
-
-  // Missing static files should not return the React page
-  if (path.extname(req.path)) {
-    return next();
-  }
-
-  res.sendFile(path.join(clientDist, "index.html"), err => {
-    if (err) next(err);
-  });
-});
-
-// ======================================================
-// ERROR HANDLING
-// ======================================================
-// ======================================================
-// SERVE EWALEL REACT FRONTEND
-// ======================================================
-
-const frontendPath = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../client/dist"
-);
-
-// Serve React files
-app.use(express.static(frontendPath));
-
-// React frontend routes
-app.use((req, res, next) => {
-  if (
-    req.method !== "GET" ||
-    req.path.startsWith("/api/") ||
-    req.path.startsWith("/uploads/") ||
-    path.extname(req.path)
-  ) {
-    return next();
-  }
-
-  res.sendFile(
-    path.join(frontendPath, "index.html"),
-    err => {
-      if (err) next(err);
-    }
-  );
-});
 
 // CUSTOMER RELATIONSHIP MANAGEMENT (authenticated administrator routes)
 app.get("/api/admin/customers",auth,asyncRoute(async(req,res)=>{
@@ -3506,6 +3440,65 @@ app.get("/{*path}", (req, res, next) => {
   res.sendFile(path.join(frontendDist, "index.html"));
 });
 
+
+// ======================================================
+// SERVE EWALEL REACT FRONTEND
+// ======================================================
+
+app.use(express.static(clientDist));
+
+app.use((req, res, next) => {
+  if (req.path === "/api" || req.path.startsWith("/api/")) {
+    return next();
+  }
+
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    return next();
+  }
+
+  if (path.extname(req.path)) {
+    return next();
+  }
+
+  res.sendFile(path.join(clientDist, "index.html"), err => {
+    if (err) next(err);
+  });
+});
+
+// ======================================================
+// FINAL 404 HANDLER
+// ======================================================
+
+app.use((req, res) => {
+  res.status(404).json({
+    error: "API endpoint not found"
+  });
+});
+
+// ======================================================
+// ERROR HANDLER
+// ======================================================
+
+app.use((err, req, res, next) => {
+  console.error(err);
+
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({
+      error: err.message
+    });
+  }
+
+  if (err.code === "ER_DUP_ENTRY") {
+    return res.status(409).json({
+      error: "Duplicate reference"
+    });
+  }
+
+  res.status(500).json({
+    error: "Server error; check server logs"
+  });
+});
+
 // ======================================================
 // START SERVER
 // ======================================================
@@ -3518,6 +3511,11 @@ try {
   process.exit(1);
 }
 
-app.listen(PORT, () => {
-  console.log(`Ewalel API running on port ${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Ewalel running on port ${PORT}`);
 });
+
+
+
+
+
