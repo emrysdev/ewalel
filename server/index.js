@@ -1189,6 +1189,7 @@ import rateLimit from "express-rate-limit";
 
 
 
+
 // ======================================================
 // EWALEL COTTAGES - COMPLETE BACKEND
 // ======================================================
@@ -3022,3 +3023,275 @@ try {
 app.listen(PORT, () => {
   console.log(`Ewalel API running on port ${PORT}`);
 });
+
+
+
+/*
+ * EWALEL COTTAGES
+ * Admin M-PESA payment management
+ *
+ * Requires existing:
+ * app, auth, asyncRoute, query, pool
+ *
+ * The routes below use your existing Railway
+ * MySQL database.
+ */
+
+// ==========================================
+// 1. ADMIN BUSINESS SUMMARY
+// ==========================================
+
+app.get(
+  "/api/admin/summary",
+  auth,
+  asyncRoute(async (req, res) => {
+    const [bookings, cottages, payments, mpesa] =
+      await Promise.all([
+        query(`
+          SELECT status, COUNT(*) AS count
+          FROM bookings
+          GROUP BY status
+        `),
+
+        query(`
+          SELECT COUNT(*) AS count
+          FROM cottages
+        `),
+
+        query(`
+          SELECT COALESCE(SUM(amount), 0) AS revenue
+          FROM payments
+          WHERE status = 'completed'
+        `),
+
+        query(`
+          SELECT COUNT(*) AS count
+          FROM mpesa_payments
+          WHERE status = 'pending'
+        `)
+      ]);
+
+    res.json({
+      booking_counts: bookings,
+      active_cottages: cottages[0].count,
+      total_revenue: Number(payments[0].revenue),
+      pending_mpesa: mpesa[0].count
+    });
+  })
+);
+
+
+// ==========================================
+// 2. VIEW M-PESA TRANSACTIONS
+// ==========================================
+
+app.get(
+  "/api/admin/mpesa",
+  auth,
+  asyncRoute(async (req, res) => {
+    const rows = await query(`
+      SELECT
+        m.trans_id,
+        m.receipt_number,
+        m.booking_id,
+        m.amount,
+        m.status,
+        m.received_at,
+        b.ref AS booking_reference,
+        b.name AS guest_name,
+        b.total AS booking_total
+      FROM mpesa_payments m
+      LEFT JOIN bookings b
+        ON b.id = m.booking_id
+      ORDER BY m.received_at DESC
+    `);
+
+    res.json(rows);
+  })
+);
+
+
+// ==========================================
+// 3. RECORD M-PESA RECEIPT
+// ==========================================
+
+app.post(
+  "/api/admin/mpesa/record",
+  auth,
+  asyncRoute(async (req, res) => {
+    const { booking_id, receipt_number } =
+      req.body || {};
+
+    const receipt = String(
+      receipt_number || ""
+    ).trim().toUpperCase();
+
+    if (
+      !booking_id ||
+      !/^[A-Z0-9]{8,20}$/.test(receipt)
+    ) {
+      return res.status(400).json({
+        error: "Valid booking and receipt required"
+      });
+    }
+
+    const bookings = await query(
+      `SELECT id, status
+       FROM bookings
+       WHERE id = ?`,
+      [booking_id]
+    );
+
+    if (!bookings.length) {
+      return res.status(404).json({
+        error: "Booking not found"
+      });
+    }
+
+    if (
+      ![
+        "awaiting_payment",
+        "payment_submitted"
+      ].includes(bookings[0].status)
+    ) {
+      return res.status(409).json({
+        error: "Booking cannot accept a receipt"
+      });
+    }
+
+    const existing = await query(
+      `SELECT trans_id
+       FROM mpesa_payments
+       WHERE receipt_number = ?
+       LIMIT 1`,
+      [receipt]
+    );
+
+    if (existing.length) {
+      return res.status(409).json({
+        error: "Receipt already recorded"
+      });
+    }
+
+    // This example requires a unique receipt
+    // constraint and a compatible table schema.
+    // Do not enable it before verifying both.
+
+    res.status(501).json({
+      error:
+        "Receipt recording requires the verified " +
+        "database insert mapping before activation."
+    });
+  })
+);
+
+
+// ==========================================
+// 4. VERIFY PAYMENT
+// ==========================================
+
+app.post(
+  "/api/admin/mpesa/verify",
+  auth,
+  asyncRoute(async (req, res) => {
+    const {
+      receipt_number,
+      verified_amount,
+      verification_reference
+    } = req.body || {};
+
+    const receipt = String(
+      receipt_number || ""
+    ).trim().toUpperCase();
+
+    const amount = Number(verified_amount);
+
+    if (
+      !receipt ||
+      !Number.isSafeInteger(amount) ||
+      amount <= 0 ||
+      String(
+        verification_reference || ""
+      ).trim().length < 5
+    ) {
+      return res.status(400).json({
+        error:
+          "Receipt, verified amount and " +
+          "evidence reference are required"
+      });
+    }
+
+    /*
+     * SECURITY REQUIREMENT
+     *
+     * Before activating payment confirmation:
+     *
+     * 1. Verify the transaction independently
+     *    against Safaricom records.
+     *
+     * 2. Confirm the PayBill recipient.
+     *
+     * 3. Confirm the amount and booking.
+     *
+     * 4. Lock the booking and payment records
+     *    inside a MySQL transaction.
+     *
+     * 5. Reject duplicate receipt references.
+     *
+     * 6. Save the verification evidence.
+     *
+     * 7. Insert one completed payment.
+     *
+     * 8. Confirm the booking only after
+     *    the database transaction succeeds.
+     */
+
+    return res.status(501).json({
+      error:
+        "Payment confirmation is disabled " +
+        "until database verification and " +
+        "duplicate-payment protection are tested."
+    });
+  })
+);
+
+
+// ==========================================
+// 5. REJECT M-PESA RECEIPT
+// ==========================================
+
+app.post(
+  "/api/admin/mpesa/reject",
+  auth,
+  asyncRoute(async (req, res) => {
+    const receipt = String(
+      req.body?.receipt_number || ""
+    ).trim().toUpperCase();
+
+    if (!receipt) {
+      return res.status(400).json({
+        error: "Receipt number required"
+      });
+    }
+
+    const result = await query(
+      `UPDATE mpesa_payments
+       SET status = 'rejected'
+       WHERE receipt_number = ?
+         AND status = 'pending'`,
+      [receipt]
+    );
+
+    if (!result.affectedRows) {
+      return res.status(404).json({
+        error:
+          "Pending receipt not found"
+      });
+    }
+
+    res.json({
+      ok: true,
+      message: "Receipt rejected"
+    });
+  })
+);
