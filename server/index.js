@@ -1269,7 +1269,7 @@ if (!JWT_SECRET || JWT_SECRET.length < 20) {
   throw new Error("Set JWT_SECRET (20+ characters) in server/.env");
 }
 // React frontend production build
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const clientDist = path.resolve(
   __dirname,
@@ -3489,6 +3489,21 @@ app.use((err, req, res, next) => {
   res.status(500).json({
     error: "Server error; check server logs"
   });
+});
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const frontendDist = path.resolve(__dirname, "../client/dist");
+
+app.use(express.static(frontendDist));
+
+app.get("/{*path}", (req, res, next) => {
+  if (req.path.startsWith("/api/")) {
+    return next();
+  }
+
+  res.sendFile(path.join(frontendDist, "index.html"));
 });
 
 // ======================================================
