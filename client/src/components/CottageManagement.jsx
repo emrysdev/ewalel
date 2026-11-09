@@ -11,9 +11,41 @@ import {
 } from "lucide-react";
 import "./CottageManagement.css";
 
+
+// const API_BASE = (
+//   import.meta.env.VITE_API_URL ||
+//   (window.location.hostname === "localhost"
+//     ? "http://localhost:4001"
+//     : window.location.origin)
+// ).replace(/\/$/, "");
+
+// function imageUrl(path) {
+//   if (!path) return "";
+
+//   if (/^https?:\/\//i.test(path)) {
+//     return path;
+//   }
+
+//   return `${API_BASE}/${String(path).replace(/^\/+/, "")}`;
+// }
+
+
 const BASE = (
   import.meta.env.VITE_API_URL || "http://localhost:4001"
 ).replace(/\/$/, "");
+
+function imageUrl(url) {
+  if (!url) return "";
+
+  const value = String(url).trim();
+
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+
+  return `${BASE}/${value.replace(/^\/+/, "")}`;
+}
+
 
 const emptyForm = {
   name: "",
@@ -23,11 +55,11 @@ const emptyForm = {
   description: ""
 };
 
-function imageUrl(url) {
-  if (!url) return "";
-  if (/^https?:\/\//i.test(url)) return url;
-  return `${BASE}${url.startsWith("/") ? "" : "/"}${url}`;
-}
+// function imageUrl(url) {
+//   if (!url) return "";
+//   if (/^https?:\/\//i.test(url)) return url;
+//   return `${BASE}${url.startsWith("/") ? "" : "/"}${url}`;
+// }
 
 export default function CottageManagement({
   cottages = [],
@@ -326,7 +358,7 @@ export default function CottageManagement({
                   alt={cottage.name}
                   style={{
                     width: "100%",
-                    height: "100%",
+                    height: "",
                     objectFit: "cover"
                   }}
                 />

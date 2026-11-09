@@ -1189,7 +1189,6 @@ import rateLimit from "express-rate-limit";
 
 
 
-
 // ======================================================
 // EWALEL COTTAGES - COMPLETE BACKEND
 // ======================================================
@@ -1198,6 +1197,13 @@ import rateLimit from "express-rate-limit";
 
 
 const app = express();
+
+app.get("/api/debug", (req, res) => {
+  res.json({
+    success: true,
+    message: "Ewalel backend is working"
+  });
+});
 
 // const __filename = fileURLToPath(import.meta.url);
 // const __dirname = path.dirname(__filename);
@@ -1284,11 +1290,122 @@ const pool = mysql.createPool({
   port: Number(process.env.DB_PORT || 3306),
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME || "ewalel_designed",
+  database: process.env.DB_NAME || "railway",
   waitForConnections: true,
   connectionLimit: 10,
   decimalNumbers: true
 });
+
+
+async function saveGuestCheckIn(bookingId) {
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    // 1. Find the booking.
+    const [bookings] = await conn.execute(
+      `SELECT id, ref, status
+       FROM bookings
+       WHERE id = ?
+       FOR UPDATE`,
+      [bookingId]
+    );
+
+    if (bookings.length === 0) {
+      const error = new Error("Booking not found");
+      error.status = 404;
+      throw error;
+    }
+
+    const booking = bookings[0];
+
+    // 2. Only confirmed bookings can check in.
+    if (booking.status !== "confirmed") {
+      const error = new Error(
+        "Only confirmed bookings can check in"
+      );
+      error.status = 409;
+      throw error;
+    }
+
+    // 3. Find the CRM customer linked to this booking.
+    const [links] = await conn.execute(
+      `SELECT customer_id
+       FROM crm_customer_bookings
+       WHERE booking_reference = ?`,
+      [booking.ref]
+    );
+
+    if (links.length !== 1) {
+      const error = new Error(
+        "Booking is not linked to exactly one CRM customer"
+      );
+      error.status = 409;
+      throw error;
+    }
+
+    const customerId = links[0].customer_id;
+
+    // 4. Check whether the guest has a stay record.
+    const [existing] = await conn.execute(
+      `SELECT stay_status
+       FROM crm_guest_stays
+       WHERE booking_reference = ?
+       FOR UPDATE`,
+      [booking.ref]
+    );
+
+    if (existing.length > 0) {
+      if (existing[0].stay_status !== "not_checked_in") {
+        const error = new Error(
+          "Guest has already checked in or checked out"
+        );
+        error.status = 409;
+        throw error;
+      }
+
+      // 5A. Update an existing stay record.
+      await conn.execute(
+        `UPDATE crm_guest_stays
+         SET stay_status = 'checked_in',
+             actual_check_in = NOW(),
+             checked_in_by = ?
+         WHERE booking_reference = ?`,
+        ["Admin", booking.ref]
+      );
+    } else {
+      // 5B. Create a new stay record.
+      await conn.execute(
+        `INSERT INTO crm_guest_stays (
+          customer_id,
+          booking_reference,
+          stay_status,
+          actual_check_in,
+          checked_in_by
+        )
+        VALUES (?, ?, 'checked_in', NOW(), ?)`,
+        [customerId, booking.ref, "Admin"]
+      );
+    }
+
+    // 6. Save the database transaction.
+    await conn.commit();
+
+    return {
+      ok: true,
+      booking_reference: booking.ref,
+      stay_status: "checked_in"
+    };
+
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
 
 async function query(sql, params = []) {
   const [rows] = await pool.execute(sql, params);
@@ -1379,6 +1496,18 @@ const cottageUploadDir = path.join(uploadDir, "cottages");
 
 
 await fs.mkdir(cottageUploadDir, { recursive: true });
+
+console.log("UPLOAD DIRECTORY:", uploadDir);
+console.log("COTTAGE DIRECTORY:", cottageUploadDir);
+
+const files = await fs.readdir(cottageUploadDir);
+console.log("AVAILABLE PHOTOS:", files);
+
+app.use((req, res) => {
+  res.status(404).json({
+    error: "API endpoint not found"
+  });
+});
 
 app.use("/uploads", express.static(uploadDir, {
   index: false,
@@ -1486,6 +1615,11 @@ app.get("/api/cottages", asyncRoute(async (req, res) => {
 // ADMIN COTTAGES
 // ======================================================
 
+// 1. Middleware
+app.use(express.json());
+
+// 2. Static uploads
+app.use("/uploads", express.static(uploadDir));
 
 app.get("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
   const cottages = await query(`
@@ -1500,6 +1634,15 @@ app.get("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
 
   res.json(cottages);
 }));
+
+// 4. Other API routes go here
+
+// 5. 404 handler — LAST
+app.use((req, res) => {
+  res.status(404).json({
+    error: "API endpoint not found"
+  });
+});
 
 
 // app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
@@ -2408,6 +2551,215 @@ app.patch(
 
 
 // ======================================================
+// ADMIN STAY MANAGEMENT — authenticated, audited transitions
+// Requires migration: Ewalel_stay_management.sql
+// ======================================================
+
+
+app.get("/api/admin/stays", auth, asyncRoute(async (req, res) => {
+  const rows = await query(`
+    SELECT
+      s.id,
+      b.id AS booking_id,
+      s.booking_reference,
+      s.customer_id,
+      s.stay_status,
+      s.actual_check_in,
+      s.actual_check_out,
+      s.checked_in_by,
+      s.checked_out_by
+    FROM crm_guest_stays s
+    JOIN bookings b
+      ON b.ref = s.booking_reference
+    ORDER BY s.id DESC
+    LIMIT 1000
+  `);
+
+  res.json(rows);
+}));
+
+
+// app.post("/api/admin/bookings/:id/:action", auth, asyncRoute(async (req, res) => {
+//   const bookingId = String(req.params.id || "");
+//   const action = String(req.params.action || "");
+//   if (!validId(bookingId) || !["check-in", "check-out"].includes(action)) {
+//     return res.status(400).json({ error: "Invalid booking or action" });
+//   }
+//   const from = action === "check-in" ? "confirmed" : "checked_in";
+//   const to = action === "check-in" ? "checked_in" : "checked_out";
+//   const event = action === "check-in" ? "check_in" : "check_out";
+//   const conn = await pool.getConnection();
+//   try {
+//     await conn.beginTransaction();
+//     const [bookings] = await conn.execute(
+//       "SELECT id, status, total, check_in, check_out FROM bookings WHERE id=? FOR UPDATE",
+//       [bookingId]
+//     );
+//     const booking = bookings[0];
+//     if (!booking) {
+//       await conn.rollback();
+//       return res.status(404).json({ error: "Booking not found" });
+//     }
+//     if (booking.status !== from) {
+//       await conn.rollback();
+//       return res.status(409).json({ error: `Only ${from} bookings can be ${action === "check-in" ? "checked in" : "checked out"}` });
+//     }
+//     // Check that the booking is fully paid using completed payment records.
+//     const [paidRows] = await conn.execute(
+//       "SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE booking_id=? AND status='completed'",
+//       [bookingId]
+//     );
+//     const due = Math.max(0, Number(booking.total || 0) - Number(paidRows[0]?.paid || 0));
+//     if (due > 0.005) {
+//       await conn.rollback();
+//       return res.status(409).json({ error: `Cannot ${action}: outstanding balance KES ${due.toFixed(2)}. Verify payment first.` });
+//     }
+//     const [updated] = await conn.execute(
+//       "UPDATE bookings SET status=? WHERE id=? AND status=?",
+//       [to, bookingId, from]
+//     );
+//     if (updated.affectedRows !== 1) throw new Error("Booking status changed concurrently");
+//     await conn.execute(
+//       "INSERT INTO booking_stay_events (booking_id,event_type) VALUES (?,?)",
+//       [bookingId, event]
+//     );
+//     await conn.commit();
+//     res.json({ ok:true, booking_id:bookingId, status:to });
+//   } catch (error) {
+//     await conn.rollback();
+//     throw error;
+//   } finally { conn.release(); }
+// }));
+
+
+
+app.post(
+  "/api/admin/bookings/:id/:action",
+  auth,
+  asyncRoute(async (req, res) => {
+    const bookingId = String(req.params.id || "");
+    const action = String(req.params.action || "");
+
+    if (
+      !validId(bookingId) ||
+      !["check-in", "check-out"].includes(action)
+    ) {
+      return res.status(400).json({
+        error: "Invalid booking or action"
+      });
+    }
+
+    // Check-in: preserve payment verification.
+    if (action === "check-in") {
+      const [bookings] = await pool.execute(
+        `SELECT id, total, status
+         FROM bookings
+         WHERE id = ?`,
+        [bookingId]
+      );
+
+      if (!bookings.length) {
+        return res.status(404).json({
+          error: "Booking not found"
+        });
+      }
+
+      if (bookings[0].status !== "confirmed") {
+        return res.status(409).json({
+          error: "Only confirmed bookings can check in"
+        });
+      }
+
+      const [payments] = await pool.execute(
+        `SELECT COALESCE(SUM(amount), 0) AS paid
+         FROM payments
+         WHERE booking_id = ?
+           AND status = 'completed'`,
+        [bookingId]
+      );
+
+      const balance = Math.max(
+        0,
+        Number(bookings[0].total) -
+        Number(payments[0].paid)
+      );
+
+      if (balance > 0.005) {
+        return res.status(409).json({
+          error: "Payment must be completed before check-in"
+        });
+      }
+
+      const result = await saveGuestCheckIn(bookingId);
+
+      return res.json({
+        ...result,
+        booking_id: bookingId,
+        status: "checked_in"
+      });
+    }
+
+    // Check-out: update the existing CRM stay.
+    const conn = await pool.getConnection();
+
+    try {
+      await conn.beginTransaction();
+
+      const [bookings] = await conn.execute(
+        `SELECT id, ref
+         FROM bookings
+         WHERE id = ?
+         FOR UPDATE`,
+        [bookingId]
+      );
+
+      if (!bookings.length) {
+        await conn.rollback();
+        return res.status(404).json({
+          error: "Booking not found"
+        });
+      }
+
+      const ref = bookings[0].ref;
+
+      const [result] = await conn.execute(
+        `UPDATE crm_guest_stays
+         SET stay_status = 'checked_out',
+             actual_check_out = NOW(),
+             checked_out_by = ?
+         WHERE booking_reference = ?
+           AND stay_status = 'checked_in'`,
+        ["Admin", ref]
+      );
+
+      if (!result.affectedRows) {
+        await conn.rollback();
+        return res.status(409).json({
+          error: "Guest must be checked in before checkout"
+        });
+      }
+
+      await conn.commit();
+
+      return res.json({
+        ok: true,
+        booking_id: bookingId,
+        booking_reference: ref,
+        status: "checked_out",
+        stay_status: "checked_out"
+      });
+
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+  })
+);
+
+
+// ======================================================
 // PAYMENTS
 // ======================================================
 
@@ -2693,6 +3045,99 @@ app.post("/api/mpesa/submit-receipt", asyncRoute(async (req, res) => {
 }));
 
 
+// ADMIN: Record an M-PESA receipt for an existing booking.
+// Recording a receipt NEVER confirms a payment or adds revenue.
+app.post("/api/admin/mpesa/record", auth, asyncRoute(async (req, res) => {
+  const bookingId = String(req.body?.booking_id || "").trim();
+  const receipt = String(req.body?.receipt_number || "").trim().toUpperCase();
+  if (!bookingId || !/^[A-Z0-9]{8,20}$/.test(receipt)) {
+    return res.status(400).json({ error: "Select a booking and enter a valid M-PESA receipt" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [bookings] = await conn.execute(
+      "SELECT id, status FROM bookings WHERE id=? FOR UPDATE", [bookingId]
+    );
+    if (!bookings.length) {
+      await conn.rollback();
+      return res.status(404).json({ error: "Booking not found" });
+    }
+    if (!["awaiting_payment", "payment_submitted"].includes(bookings[0].status)) {
+      await conn.rollback();
+      return res.status(409).json({ error: "Booking is not awaiting payment" });
+    }
+    const [existing] = await conn.execute(
+      "SELECT trans_id FROM mpesa_payments WHERE receipt_number=? LIMIT 1", [receipt]
+    );
+    const [recorded] = await conn.execute(
+      "SELECT id FROM payments WHERE transaction_reference=? AND payment_method='mpesa' LIMIT 1", [receipt]
+    );
+    if (existing.length || recorded.length) {
+      await conn.rollback();
+      return res.status(409).json({ error: "Receipt already recorded" });
+    }
+    const transactionId = `ADM-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+    await conn.execute(
+      `INSERT INTO mpesa_payments
+       (trans_id, amount, account, receipt_number, booking_id,
+        status, payment_source, received_at)
+       VALUES (?, 0, ?, ?, ?, 'pending', 'manual', ?)`,
+      [transactionId, "7845616", receipt, bookingId, Date.now()]
+    );
+    await conn.execute(
+      `UPDATE bookings SET status='payment_submitted'
+       WHERE id=? AND status='awaiting_payment'`, [bookingId]
+    );
+    await conn.commit();
+    res.status(201).json({ ok: true, booking_id: bookingId, receipt_number: receipt,
+      status: "pending", message: "Receipt recorded. Verify it against Safaricom before confirming payment." });
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}));
+
+// ADMIN: Reject a receipt that cannot be verified.
+app.post("/api/admin/mpesa/reject", auth, asyncRoute(async (req, res) => {
+  const receipt = String(req.body?.receipt_number || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{8,20}$/.test(receipt)) {
+    return res.status(400).json({ error: "Invalid receipt" });
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.execute(
+      "SELECT booking_id, status FROM mpesa_payments WHERE receipt_number=? FOR UPDATE", [receipt]
+    );
+    if (rows.length !== 1 || rows[0].status !== "pending") {
+      await conn.rollback();
+      return res.status(409).json({ error: "Receipt not found or already reviewed" });
+    }
+    await conn.execute(
+      "UPDATE mpesa_payments SET status='rejected', reviewed_at=NOW() WHERE receipt_number=?", [receipt]
+    );
+    const [pending] = await conn.execute(
+      "SELECT trans_id FROM mpesa_payments WHERE booking_id=? AND status='pending' LIMIT 1", [rows[0].booking_id]
+    );
+    if (!pending.length) {
+      await conn.execute(
+        "UPDATE bookings SET status='awaiting_payment' WHERE id=? AND status='payment_submitted'", [rows[0].booking_id]
+      );
+    }
+    await conn.commit();
+    res.json({ ok: true, message: "Receipt rejected; no revenue recorded" });
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}));
+
  // ADMIN: View M-PESA receipts awaiting verification
 app.get("/api/admin/mpesa", auth, asyncRoute(async (req, res) => {
   const receipts = await query(`
@@ -2906,7 +3351,7 @@ app.get("/api/admin/finance", auth, asyncRoute(async (req, res) => {
     (sum, b) => sum + Math.max(
       0,
       // Number(b.total_amount) - Number(b.paid)
-      Number(b.total) - Number(b.paid)
+      Number(b.total_amount) - Number(b.paid)
     ),
     0
   );
@@ -2980,6 +3425,44 @@ app.use((req, res, next) => {
     }
   );
 });
+
+// CUSTOMER RELATIONSHIP MANAGEMENT (authenticated administrator routes)
+app.get("/api/admin/customers",auth,asyncRoute(async(req,res)=>{
+  res.json(await query("SELECT * FROM crm_customers ORDER BY created_at DESC"));
+}));
+app.post("/api/admin/customers",auth,asyncRoute(async(req,res)=>{
+  const name=String(req.body.name||"").trim().slice(0,120);
+  const phone=String(req.body.phone||"").trim().slice(0,40);
+  const email=String(req.body.email||"").trim().toLowerCase().slice(0,160);
+  if(!name||(!phone&&!email))return res.status(400).json({error:"Name and phone or email are required"});
+  const existing=await query("SELECT id FROM crm_customers WHERE (phone<>'' AND phone=?) OR (email<>'' AND email=?) LIMIT 1",[phone,email]);
+  if(existing.length)return res.json({id:existing[0].id,existing:true});
+  const result=await query("INSERT INTO crm_customers (name,phone,email) VALUES (?,?,?)",[name,phone,email]);
+  res.status(201).json({id:result.insertId});
+}));
+app.patch("/api/admin/customers/:id",auth,asyncRoute(async(req,res)=>{
+  const id=Number(req.params.id);
+  if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({error:"Invalid customer ID"});
+  const preferred=String(req.body.preferred_cottage||"").slice(0,120);
+  const requests=String(req.body.special_requests||"").slice(0,2000);
+  const consent=req.body.marketing_consent===true?1:0;
+  const result=await query("UPDATE crm_customers SET preferred_cottage=?,special_requests=?,marketing_consent=? WHERE id=?",[preferred,requests,consent,id]);
+  if(!result.affectedRows)return res.status(404).json({error:"Customer not found"});
+  res.json({ok:true});
+}));
+app.get("/api/admin/customer-notes",auth,asyncRoute(async(req,res)=>{
+  res.json(await query("SELECT id,customer_id,note,created_at FROM crm_customer_notes ORDER BY created_at DESC LIMIT 1000"));
+}));
+app.post("/api/admin/customer-notes",auth,asyncRoute(async(req,res)=>{
+  const id=Number(req.body.customer_id);
+  const note=String(req.body.note||"").trim();
+  if(!Number.isSafeInteger(id)||id<=0||!note||note.length>2000)return res.status(400).json({error:"Valid customer and note (max 2000 characters) required"});
+  const exists=await query("SELECT id FROM crm_customers WHERE id=?",[id]);
+  if(!exists.length)return res.status(404).json({error:"Customer not found"});
+  const result=await query("INSERT INTO crm_customer_notes (customer_id,note) VALUES (?,?)",[id,note]);
+  res.status(201).json({id:result.insertId});
+}));
+
 app.use((req, res) => {
   res.status(404).json({ error: "API endpoint not found" });
 });
@@ -3023,275 +3506,3 @@ try {
 app.listen(PORT, () => {
   console.log(`Ewalel API running on port ${PORT}`);
 });
-
-
-
-/*
- * EWALEL COTTAGES
- * Admin M-PESA payment management
- *
- * Requires existing:
- * app, auth, asyncRoute, query, pool
- *
- * The routes below use your existing Railway
- * MySQL database.
- */
-
-// ==========================================
-// 1. ADMIN BUSINESS SUMMARY
-// ==========================================
-
-app.get(
-  "/api/admin/summary",
-  auth,
-  asyncRoute(async (req, res) => {
-    const [bookings, cottages, payments, mpesa] =
-      await Promise.all([
-        query(`
-          SELECT status, COUNT(*) AS count
-          FROM bookings
-          GROUP BY status
-        `),
-
-        query(`
-          SELECT COUNT(*) AS count
-          FROM cottages
-        `),
-
-        query(`
-          SELECT COALESCE(SUM(amount), 0) AS revenue
-          FROM payments
-          WHERE status = 'completed'
-        `),
-
-        query(`
-          SELECT COUNT(*) AS count
-          FROM mpesa_payments
-          WHERE status = 'pending'
-        `)
-      ]);
-
-    res.json({
-      booking_counts: bookings,
-      active_cottages: cottages[0].count,
-      total_revenue: Number(payments[0].revenue),
-      pending_mpesa: mpesa[0].count
-    });
-  })
-);
-
-
-// ==========================================
-// 2. VIEW M-PESA TRANSACTIONS
-// ==========================================
-
-app.get(
-  "/api/admin/mpesa",
-  auth,
-  asyncRoute(async (req, res) => {
-    const rows = await query(`
-      SELECT
-        m.trans_id,
-        m.receipt_number,
-        m.booking_id,
-        m.amount,
-        m.status,
-        m.received_at,
-        b.ref AS booking_reference,
-        b.name AS guest_name,
-        b.total AS booking_total
-      FROM mpesa_payments m
-      LEFT JOIN bookings b
-        ON b.id = m.booking_id
-      ORDER BY m.received_at DESC
-    `);
-
-    res.json(rows);
-  })
-);
-
-
-// ==========================================
-// 3. RECORD M-PESA RECEIPT
-// ==========================================
-
-app.post(
-  "/api/admin/mpesa/record",
-  auth,
-  asyncRoute(async (req, res) => {
-    const { booking_id, receipt_number } =
-      req.body || {};
-
-    const receipt = String(
-      receipt_number || ""
-    ).trim().toUpperCase();
-
-    if (
-      !booking_id ||
-      !/^[A-Z0-9]{8,20}$/.test(receipt)
-    ) {
-      return res.status(400).json({
-        error: "Valid booking and receipt required"
-      });
-    }
-
-    const bookings = await query(
-      `SELECT id, status
-       FROM bookings
-       WHERE id = ?`,
-      [booking_id]
-    );
-
-    if (!bookings.length) {
-      return res.status(404).json({
-        error: "Booking not found"
-      });
-    }
-
-    if (
-      ![
-        "awaiting_payment",
-        "payment_submitted"
-      ].includes(bookings[0].status)
-    ) {
-      return res.status(409).json({
-        error: "Booking cannot accept a receipt"
-      });
-    }
-
-    const existing = await query(
-      `SELECT trans_id
-       FROM mpesa_payments
-       WHERE receipt_number = ?
-       LIMIT 1`,
-      [receipt]
-    );
-
-    if (existing.length) {
-      return res.status(409).json({
-        error: "Receipt already recorded"
-      });
-    }
-
-    // This example requires a unique receipt
-    // constraint and a compatible table schema.
-    // Do not enable it before verifying both.
-
-    res.status(501).json({
-      error:
-        "Receipt recording requires the verified " +
-        "database insert mapping before activation."
-    });
-  })
-);
-
-
-// ==========================================
-// 4. VERIFY PAYMENT
-// ==========================================
-
-app.post(
-  "/api/admin/mpesa/verify",
-  auth,
-  asyncRoute(async (req, res) => {
-    const {
-      receipt_number,
-      verified_amount,
-      verification_reference
-    } = req.body || {};
-
-    const receipt = String(
-      receipt_number || ""
-    ).trim().toUpperCase();
-
-    const amount = Number(verified_amount);
-
-    if (
-      !receipt ||
-      !Number.isSafeInteger(amount) ||
-      amount <= 0 ||
-      String(
-        verification_reference || ""
-      ).trim().length < 5
-    ) {
-      return res.status(400).json({
-        error:
-          "Receipt, verified amount and " +
-          "evidence reference are required"
-      });
-    }
-
-    /*
-     * SECURITY REQUIREMENT
-     *
-     * Before activating payment confirmation:
-     *
-     * 1. Verify the transaction independently
-     *    against Safaricom records.
-     *
-     * 2. Confirm the PayBill recipient.
-     *
-     * 3. Confirm the amount and booking.
-     *
-     * 4. Lock the booking and payment records
-     *    inside a MySQL transaction.
-     *
-     * 5. Reject duplicate receipt references.
-     *
-     * 6. Save the verification evidence.
-     *
-     * 7. Insert one completed payment.
-     *
-     * 8. Confirm the booking only after
-     *    the database transaction succeeds.
-     */
-
-    return res.status(501).json({
-      error:
-        "Payment confirmation is disabled " +
-        "until database verification and " +
-        "duplicate-payment protection are tested."
-    });
-  })
-);
-
-
-// ==========================================
-// 5. REJECT M-PESA RECEIPT
-// ==========================================
-
-app.post(
-  "/api/admin/mpesa/reject",
-  auth,
-  asyncRoute(async (req, res) => {
-    const receipt = String(
-      req.body?.receipt_number || ""
-    ).trim().toUpperCase();
-
-    if (!receipt) {
-      return res.status(400).json({
-        error: "Receipt number required"
-      });
-    }
-
-    const result = await query(
-      `UPDATE mpesa_payments
-       SET status = 'rejected'
-       WHERE receipt_number = ?
-         AND status = 'pending'`,
-      [receipt]
-    );
-
-    if (!result.affectedRows) {
-      return res.status(404).json({
-        error:
-          "Pending receipt not found"
-      });
-    }
-
-    res.json({
-      ok: true,
-      message: "Receipt rejected"
-    });
-  })
-);

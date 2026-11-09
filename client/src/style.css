@@ -14,3 +14,124 @@
   align-items: center;
   gap: 16px;
 }
+
+/* CUSTOMER RETENTION LAYOUT */
+
+.customer-retention-layout {
+  display: grid !important;
+  grid-template-columns: 360px minmax(0, 1fr) !important;
+  gap: 20px !important;
+  align-items: start !important;
+  width: 100% !important;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* Customer list */
+.customer-retention-sidebar {
+  width: 100%;
+  min-width: 0;
+  margin: 0 !important;
+}
+
+/* Customer details */
+.customer-retention-details {
+  width: 100%;
+  min-width: 0;
+  margin: 0 !important;
+}
+
+/* Prevent tabs from creating excess spacing */
+.customer-retention-details .customer-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-start;
+}
+
+/* Tablet and mobile */
+@media (max-width: 850px) {
+  .customer-retention-layout {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+
+.guest-stay-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 20px;
+  margin-top: 14px;
+  background: #f3f9f7;
+  border: 1px solid #d7e6e1;
+  border-radius: 16px;
+}
+
+.guest-stay-card h3 {
+  margin: 0;
+  font-size: 17px;
+  color: #103f43;
+}
+
+.stay-dates {
+  font-size: 13px;
+  color: #64748b;
+  margin: 8px 0;
+}
+
+.stay-badge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.stay-badge.not_checked_in {
+  background: #e8efff;
+  color: #2053a0;
+}
+
+.stay-badge.checked_in {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.stay-badge.checked_out {
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.stay-action {
+  padding: 13px 20px;
+  border: 0;
+  border-radius: 11px;
+  background: #103f43;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.stay-action:hover {
+  background: #176167;
+}
+
+.stay-action:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+@media (max-width: 640px) {
+  .guest-stay-card {
+    align-items: stretch;
+  }
+
+  .stay-action {
+    width: 100%;
+  }
+}

@@ -89,24 +89,507 @@ export function Revenue({ d, range }) {
   </>;
 }
 
+// export function Guests({ d, range }) {
+//   const [A, err] = useA(d, range), [q, setQ] = useState(""), [seg, setSeg] = useState("");
+//   if (!A) return <Wait err={err} />;
+//   const C = A.clientSummary, rows = A.clients.filter(c => (!seg || c.segment === seg) && (c.name + c.phone + c.email).toLowerCase().includes(q.toLowerCase())).slice(0, 300);
+//   return <>
+//     <div className="kpis"><Kpi l="Guests who have stayed" v={C.total} /><Kpi l="Returning guests" v={C.returning} s={C.repeatRate + "% repeat rate"} /><Kpi l="Average spend per guest" v={kes(C.avgSpend)} /><Kpi l="Average stays per guest" v={C.avgStays} /></div>
+//     <div className="grid2">
+//       <div className="panel"><h3>New and returning guests by month</h3><ResponsiveContainer width="100%" height={240}><BarChart data={C.newVsReturning.map(x => ({ label: ml(x.month), "First-time": x.new, Returning: x.returning }))}><XAxis dataKey="label" /><YAxis allowDecimals={false} width={30} /><Tooltip /><Legend /><Bar dataKey="First-time" stackId="a" fill={COLORS[1]} /><Bar dataKey="Returning" stackId="a" fill={COLORS[0]} /></BarChart></ResponsiveContainer></div>
+//       <div className="panel"><h3>Top guests by spend</h3><ResponsiveContainer width="100%" height={240}><BarChart data={C.top.map(c => ({ name: c.name, spent: c.spent }))} layout="vertical"><XAxis type="number" tickFormatter={v => v / 1000 + "k"} /><YAxis type="category" dataKey="name" width={110} /><Tooltip formatter={v => kes(v)} /><Bar dataKey="spent" fill={COLORS[2]} /></BarChart></ResponsiveContainer></div>
+//     </div>
+//     <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2>Client list</h2><ExportBtn kind="clients" label="Export clients to Excel" range={range} primary /></div>
+//     <div className="panel row"><label>Search<input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, phone or email" /></label>
+//       <label>Segment<select value={seg} onChange={e => setSeg(e.target.value)}><option value="">All</option><option>Returning</option><option>First-time</option><option>Enquiry only</option></select></label><small>{rows.length} shown</small></div>
+//     <div className="panel tw" style={{ marginTop: 14 }}><table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Segment</th><th>Stays</th><th>Nights</th><th>Spent</th><th>Last stay</th><th>Next stay</th><th>Favourite</th></tr></thead><tbody>
+//       {rows.map(c => <tr key={c.key}><td><b>{c.name}</b></td><td>{c.phone}</td><td>{c.email || "-"}</td><td><span className="tag">{c.segment}</span></td><td>{c.stays}</td><td>{c.nights}</td><td>{kes(c.spent)}</td><td>{c.last ? dm(c.last) : "-"}</td><td>{c.next ? dm(c.next) : "-"}</td><td>{c.favourite || "-"}</td></tr>)}
+//       {!rows.length && <tr><td colSpan="10">No guests match.</td></tr>}</tbody></table></div>
+//   </>;
+// }
+
+
 export function Guests({ d, range }) {
-  const [A, err] = useA(d, range), [q, setQ] = useState(""), [seg, setSeg] = useState("");
+  const [A, err] = useA(d, range);
+  const [q, setQ] = useState("");
+  const [seg, setSeg] = useState("");
+
+  const [customers, setCustomers] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [crmBookings, setCrmBookings] = useState([]);
+  const [stays, setStays] = useState({});
+  const [crmError, setCrmError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState("");
+  const [crmLoading, setCrmLoading] = useState(false);
+
+  // Load CRM customers from MySQL.
+  async function loadCustomers() {
+    try {
+      const result = await api(
+        "/admin/crm/customers",
+        { auth: true }
+      );
+
+      setCustomers(Array.isArray(result) ? result : []);
+      setCrmError("");
+    } catch (error) {
+      setCrmError(error.message);
+    }
+  }
+
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  // Load the selected customer's linked bookings
+  // and actual check-in/check-out records.
+  async function loadCustomerStays(customerId) {
+    if (!customerId) {
+      setCrmBookings([]);
+      setStays({});
+      return;
+    }
+
+    setCrmLoading(true);
+    setCrmError("");
+
+    try {
+      const [bookings, stayRows] = await Promise.all([
+        api(
+          `/admin/crm/customers/${customerId}/bookings`,
+          { auth: true }
+        ),
+        api(
+          `/admin/crm/customers/${customerId}/stays`,
+          { auth: true }
+        )
+      ]);
+
+      setCrmBookings(
+        Array.isArray(bookings) ? bookings : []
+      );
+
+      const stayMap = {};
+
+      for (const stay of stayRows) {
+        stayMap[stay.booking_reference] = stay;
+      }
+
+      setStays(stayMap);
+    } catch (error) {
+      setCrmError(error.message);
+    } finally {
+      setCrmLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadCustomerStays(selectedId);
+  }, [selectedId]);
+
+  async function changeStay(booking, action) {
+    if (!selectedId || busy) return;
+
+    const label =
+      action === "check-in" ? "check in" : "check out";
+
+    if (
+      !window.confirm(
+        `Are you sure you want to ${label} ` +
+        `${booking.name || "this guest"} for ` +
+        `${booking.ref}?`
+      )
+    ) {
+      return;
+    }
+
+    setBusy(booking.id);
+    setCrmError("");
+    setNotice("");
+
+    try {
+      await api(
+        `/admin/crm/stays/${booking.id}/${action}`,
+        {
+          method: "POST",
+          auth: true,
+          body: {
+            customer_id: Number(selectedId)
+          }
+        }
+      );
+
+      await loadCustomerStays(selectedId);
+
+      setNotice(
+        action === "check-in"
+          ? "Guest successfully checked in."
+          : "Guest successfully checked out."
+      );
+    } catch (error) {
+      setCrmError(error.message);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const selectedCustomer = customers.find(
+    c => String(c.id) === String(selectedId)
+  );
+
   if (!A) return <Wait err={err} />;
-  const C = A.clientSummary, rows = A.clients.filter(c => (!seg || c.segment === seg) && (c.name + c.phone + c.email).toLowerCase().includes(q.toLowerCase())).slice(0, 300);
-  return <>
-    <div className="kpis"><Kpi l="Guests who have stayed" v={C.total} /><Kpi l="Returning guests" v={C.returning} s={C.repeatRate + "% repeat rate"} /><Kpi l="Average spend per guest" v={kes(C.avgSpend)} /><Kpi l="Average stays per guest" v={C.avgStays} /></div>
-    <div className="grid2">
-      <div className="panel"><h3>New and returning guests by month</h3><ResponsiveContainer width="100%" height={240}><BarChart data={C.newVsReturning.map(x => ({ label: ml(x.month), "First-time": x.new, Returning: x.returning }))}><XAxis dataKey="label" /><YAxis allowDecimals={false} width={30} /><Tooltip /><Legend /><Bar dataKey="First-time" stackId="a" fill={COLORS[1]} /><Bar dataKey="Returning" stackId="a" fill={COLORS[0]} /></BarChart></ResponsiveContainer></div>
-      <div className="panel"><h3>Top guests by spend</h3><ResponsiveContainer width="100%" height={240}><BarChart data={C.top.map(c => ({ name: c.name, spent: c.spent }))} layout="vertical"><XAxis type="number" tickFormatter={v => v / 1000 + "k"} /><YAxis type="category" dataKey="name" width={110} /><Tooltip formatter={v => kes(v)} /><Bar dataKey="spent" fill={COLORS[2]} /></BarChart></ResponsiveContainer></div>
-    </div>
-    <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}><h2>Client list</h2><ExportBtn kind="clients" label="Export clients to Excel" range={range} primary /></div>
-    <div className="panel row"><label>Search<input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, phone or email" /></label>
-      <label>Segment<select value={seg} onChange={e => setSeg(e.target.value)}><option value="">All</option><option>Returning</option><option>First-time</option><option>Enquiry only</option></select></label><small>{rows.length} shown</small></div>
-    <div className="panel tw" style={{ marginTop: 14 }}><table><thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Segment</th><th>Stays</th><th>Nights</th><th>Spent</th><th>Last stay</th><th>Next stay</th><th>Favourite</th></tr></thead><tbody>
-      {rows.map(c => <tr key={c.key}><td><b>{c.name}</b></td><td>{c.phone}</td><td>{c.email || "-"}</td><td><span className="tag">{c.segment}</span></td><td>{c.stays}</td><td>{c.nights}</td><td>{kes(c.spent)}</td><td>{c.last ? dm(c.last) : "-"}</td><td>{c.next ? dm(c.next) : "-"}</td><td>{c.favourite || "-"}</td></tr>)}
-      {!rows.length && <tr><td colSpan="10">No guests match.</td></tr>}</tbody></table></div>
-  </>;
+
+  const C = A.clientSummary;
+
+  const rows = A.clients.filter(c =>
+    (!seg || c.segment === seg) &&
+    `${c.name} ${c.phone} ${c.email || ""}`
+      .toLowerCase()
+      .includes(q.toLowerCase())
+  ).slice(0, 300);
+
+  return (
+    <>
+      {/* EXISTING ANALYTICS */}
+
+      <div className="kpis">
+        <Kpi
+          l="Guests who have stayed"
+          v={C.total}
+        />
+        <Kpi
+          l="Returning guests"
+          v={C.returning}
+          s={`${C.repeatRate}% repeat rate`}
+        />
+        <Kpi
+          l="Average spend per guest"
+          v={kes(C.avgSpend)}
+        />
+        <Kpi
+          l="Average stays per guest"
+          v={C.avgStays}
+        />
+      </div>
+
+      <div className="grid2">
+        <div className="panel">
+          <h3>New and returning guests by month</h3>
+
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart
+              data={C.newVsReturning.map(x => ({
+                label: ml(x.month),
+                "First-time": x.new,
+                Returning: x.returning
+              }))}
+            >
+              <XAxis dataKey="label" />
+              <YAxis allowDecimals={false} />
+              <Tooltip />
+              <Legend />
+              <Bar
+                dataKey="First-time"
+                stackId="a"
+                fill={COLORS[1]}
+              />
+              <Bar
+                dataKey="Returning"
+                stackId="a"
+                fill={COLORS[0]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="panel">
+          <h3>Top guests by spend</h3>
+
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart
+              data={C.top.map(c => ({
+                name: c.name,
+                spent: c.spent
+              }))}
+              layout="vertical"
+            >
+              <XAxis type="number" />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={110}
+              />
+              <Tooltip formatter={v => kes(v)} />
+              <Bar
+                dataKey="spent"
+                fill={COLORS[2]}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* NEW GUEST CHECK-IN / CHECK-OUT */}
+
+      <h2 style={{ marginTop: 28 }}>
+        Guest check-in & check-out
+      </h2>
+
+      <div className="panel">
+        <div className="row">
+          <label>
+            Select customer
+
+            <select
+              value={selectedId}
+              onChange={e => {
+                setSelectedId(e.target.value);
+                setNotice("");
+              }}
+            >
+              <option value="">
+                Select a customer
+              </option>
+
+              {customers.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.full_name} — {c.phone || c.email}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            className="sm"
+            onClick={loadCustomers}
+          >
+            Refresh customers
+          </button>
+        </div>
+
+        {selectedCustomer && (
+          <p>
+            <b>{selectedCustomer.full_name}</b>
+            <br />
+            <small>
+              {selectedCustomer.phone || "No phone"}
+              {" · "}
+              {selectedCustomer.email || "No email"}
+            </small>
+          </p>
+        )}
+
+        {crmError && (
+          <p role="alert" style={{ color: "#b91c1c" }}>
+            {crmError}
+          </p>
+        )}
+
+        {notice && (
+          <p role="status" style={{ color: "#166534" }}>
+            {notice}
+          </p>
+        )}
+
+        {crmLoading && <p>Loading guest stays...</p>}
+
+        {!crmLoading &&
+          selectedId &&
+          crmBookings.length === 0 && (
+            <p>No linked bookings for this customer.</p>
+          )}
+
+        {crmBookings.map(booking => {
+          const stay = stays[booking.ref];
+
+          const status =
+            stay?.stay_status === "checked_out"
+              ? "checked_out"
+              : stay?.stay_status === "checked_in"
+                ? "checked_in"
+                : "not_checked_in";
+
+          const confirmed =
+            booking.status === "confirmed";
+
+          return (
+            <div
+              key={booking.id}
+              className="guest-stay-card"
+            >
+              <div>
+                <h3>
+                  {booking.cottage_name ||
+                    booking.unit_id}
+                  {" · #"}
+                  {booking.ref}
+                </h3>
+
+                <p className="stay-dates">
+                  {booking.check_in} – {booking.check_out}
+                </p>
+
+                {confirmed ? (
+                  <span
+                    className={`stay-badge ${status}`}
+                  >
+                    {status === "checked_out"
+                      ? "Checked Out"
+                      : status === "checked_in"
+                        ? "Checked In"
+                        : "Confirmed — Not checked in"}
+                  </span>
+                ) : (
+                  <span className="stay-badge">
+                    {booking.status}
+                  </span>
+                )}
+
+                {stay?.actual_check_in && (
+                  <p className="stay-dates">
+                    Actual check-in:{" "}
+                    {new Date(
+                      stay.actual_check_in
+                    ).toLocaleString("en-KE")}
+                  </p>
+                )}
+
+                {stay?.actual_check_out && (
+                  <p className="stay-dates">
+                    Actual check-out:{" "}
+                    {new Date(
+                      stay.actual_check_out
+                    ).toLocaleString("en-KE")}
+                  </p>
+                )}
+              </div>
+
+              {confirmed &&
+                status !== "checked_out" && (
+                  <button
+                    className="stay-action"
+                    disabled={busy === booking.id}
+                    onClick={() =>
+                      changeStay(
+                        booking,
+                        status === "checked_in"
+                          ? "check-out"
+                          : "check-in"
+                      )
+                    }
+                  >
+                    {busy === booking.id
+                      ? "Updating..."
+                      : status === "checked_in"
+                        ? "Check Out Guest"
+                        : "Check In Guest"}
+                  </button>
+                )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* EXISTING CLIENT LIST */}
+
+      <div
+        className="row"
+        style={{
+          justifyContent: "space-between",
+          alignItems: "center"
+        }}
+      >
+        <h2>Client list</h2>
+
+        <ExportBtn
+          kind="clients"
+          label="Export clients to Excel"
+          range={range}
+          primary
+        />
+      </div>
+
+      <div className="panel row">
+        <label>
+          Search
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Name, phone or email"
+          />
+        </label>
+
+        <label>
+          Segment
+          <select
+            value={seg}
+            onChange={e => setSeg(e.target.value)}
+          >
+            <option value="">All</option>
+            <option>Returning</option>
+            <option>First-time</option>
+            <option>Enquiry only</option>
+          </select>
+        </label>
+
+        <small>{rows.length} shown</small>
+      </div>
+
+      <div
+        className="panel tw"
+        style={{ marginTop: 14 }}
+      >
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Segment</th>
+              <th>Stays</th>
+              <th>Nights</th>
+              <th>Spent</th>
+              <th>Last stay</th>
+              <th>Next stay</th>
+              <th>Favourite</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {rows.map(c => (
+              <tr key={c.key}>
+                <td><b>{c.name}</b></td>
+                <td>{c.phone}</td>
+                <td>{c.email || "-"}</td>
+                <td>
+                  <span className="tag">
+                    {c.segment}
+                  </span>
+                </td>
+                <td>{c.stays}</td>
+                <td>{c.nights}</td>
+                <td>{kes(c.spent)}</td>
+                <td>{c.last ? dm(c.last) : "-"}</td>
+                <td>{c.next ? dm(c.next) : "-"}</td>
+                <td>{c.favourite || "-"}</td>
+              </tr>
+            ))}
+
+            {!rows.length && (
+              <tr>
+                <td colSpan="10">
+                  No guests match.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
 }
+
 
 export function Operations({ d, range }) {
   const [A, err] = useA(d, range); if (!A) return <Wait err={err} />;
