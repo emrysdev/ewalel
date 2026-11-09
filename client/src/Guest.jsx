@@ -1,4 +1,6 @@
 // 
+import MpesaPayment from "./components/MpesaPayment.jsx";
+import { Copy, Check } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import {
   ArrowRight,
@@ -19,8 +21,9 @@ import {
 import "./guest.css";
 
 const API = (
-  import.meta.env.VITE_API_URL || "http://localhost:4000"
+  import.meta.env.VITE_API_URL || "http://localhost:4001"
 ).replace(/\/$/, "");
+
 
 const PAYBILL = import.meta.env.VITE_MPESA_PAYBILL || "";
 
@@ -38,6 +41,65 @@ const photos = [
 
 const money = (value) =>
   "KES " + Number(value || 0).toLocaleString("en-KE");
+
+
+function CopyNumber({ label, number }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(number);
+      setCopied(true);
+
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
+    } catch (error) {
+      alert("Unable to copy the number.");
+    }
+  }
+
+  return (
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: "12px",
+      marginBottom: "12px"
+    }}>
+      <span>{label}:</span>
+
+      <strong>{number}</strong>
+
+      <button
+        type="button"
+        onClick={handleCopy}
+        title={`Copy ${label}`}
+        aria-label={`Copy ${label}`}
+        style={{
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: "5px"
+        }}
+      >
+        {copied ? (
+          <Check size={16} color="green" />
+        ) : (
+          <Copy size={16} />
+        )}
+
+        {copied && (
+          <small style={{ color: "green" }}>
+            Copied!
+          </small>
+        )}
+      </button>
+    </div>
+  );
+}
+
 
 function imageUrl(value) {
   if (!value) return "";
@@ -124,8 +186,20 @@ export default function Guest() {
   const [phone, setPhone] = useState("");
   const [payment, setPayment] = useState("mpesa");
 
-  const [result, setResult] = useState(null);
-  const [busy, setBusy] = useState(false);
+  // const [result, setResult] = useState(null);
+  // const [busy, setBusy] = useState(false);
+  
+const [result, setResult] = useState(null);
+const [busy, setBusy] = useState(false);
+
+const [mpesaReceipt, setMpesaReceipt] = useState("");
+const [receiptBusy, setReceiptBusy] = useState(false);
+const [receiptError, setReceiptError] = useState("");
+const [receiptSubmitted, setReceiptSubmitted] = useState(false);
+
+const MPESA_PAYBILL = import.meta.env.VITE_MPESA_PAYBILL || "522533";
+const MPESA_ACCOUNT = import.meta.env.VITE_MPESA_ACCOUNT || "7845616";
+
 
   useEffect(() => {
     let cancelled = false;
@@ -234,6 +308,91 @@ export default function Guest() {
     }
   }
 
+
+const [copiedField, setCopiedField] = useState("");
+
+// async function copyPaymentDetail(value, field) {
+//   try {
+//     await navigator.clipboard.writeText(String(value));
+//     setCopiedField(field);
+//   } catch {
+//     alert("Unable to copy automatically. Please select and copy the number.");
+//   }
+// }
+
+async function copyPaymentDetail(value, field) {
+  try {
+    await navigator.clipboard.writeText(String(value));
+
+    // Show the checkmark after copying
+    setCopiedField(field);
+
+    // Reset to the copy icon after 2 seconds
+    setTimeout(() => {
+      setCopiedField((current) =>
+        current === field ? "" : current
+      );
+    }, 2000);
+
+  } catch (error) {
+    alert("Unable to copy automatically. Please select and copy the number.");
+  }
+}
+
+
+  
+async function submitMpesaReceipt(event) {
+  event.preventDefault();
+  setReceiptError("");
+
+  const receipt = mpesaReceipt.trim().toUpperCase();
+
+  if (!result?.id) {
+    setReceiptError("Booking information is missing.");
+    return;
+  }
+
+  if (!/^[A-Z0-9]{8,20}$/.test(receipt)) {
+    setReceiptError("Enter a valid M-PESA receipt number.");
+    return;
+  }
+
+  setReceiptBusy(true);
+
+  try {
+    const response = await fetch(
+      `${API}/api/mpesa/submit-receipt`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          booking_id: result.id,
+          receipt_number: receipt
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || "Unable to submit receipt."
+      );
+    }
+
+    setReceiptSubmitted(true);
+    setReceiptError("");
+
+  } catch (err) {
+    setReceiptError(err.message);
+  } finally {
+    setReceiptBusy(false);
+  }
+}
+
+
   const navigation = [
     "Home",
     "Cottages",
@@ -275,7 +434,7 @@ export default function Guest() {
             <div className="ew-paybill-details">
               <small>Pay Bill Number</small>
               <strong>
-                {PAYBILL || "Coming soon"}
+                {PAYBILL || "522533"}
               </strong>
             </div>
           </div>
@@ -736,7 +895,7 @@ export default function Guest() {
 
       {/* CONFIRMATION */}
 
-      {page === "Confirmation" && (
+      {/* {page === "Confirmation" && (
         <main className="ew-page ew-confirmation">
           <CheckCircle2 size={64} />
 
@@ -764,7 +923,181 @@ export default function Guest() {
             Back to homepage <ArrowRight size={18} />
           </button>
         </main>
-      )}
+      )} */}
+      
+{/* CONFIRMATION */}
+
+{page === "Confirmation" && (
+  <main className="ew-page ew-confirmation">
+    <CheckCircle2 size={64} />
+
+    <span className="ew-kicker">
+      RESERVATION REQUEST RECEIVED
+    </span>
+
+    <h1>Thank you, {name}.</h1>
+
+    <p>
+      Your reservation has been received.
+      Complete your M-PESA payment and submit
+      the receipt number below.
+    </p>
+
+    <div className="ew-booking-total">
+      <span>Booking #{result?.ref || result?.id}</span>
+      <strong>{money(result?.total)}</strong>
+    </div>
+
+    {payment === "mpesa" && (
+      <div
+        className="panel"
+        style={{
+          maxWidth: 480,
+          margin: "25px auto",
+          padding: 25,
+          textAlign: "left"
+        }}
+      >
+        <h2 style={{ textAlign: "center" }}>
+          Pay with M-PESA
+        </h2>
+
+        <p>Follow these steps on your phone:</p>
+
+        <ol>
+          <li>Open M-PESA.</li>
+          <li>Select Lipa na M-PESA.</li>
+          <li>Select Pay Bill.</li>
+          
+<li>
+  Enter Business Number:
+  <div className="ew-copy-field">
+    <strong>{MPESA_PAYBILL}</strong>
+    <button
+      type="button"
+      className="ew-copy-btn"
+      onClick={() => copyPaymentDetail(MPESA_PAYBILL, "paybill")}
+    >
+      {/* {copiedField === "paybill" ? "✓ Copied" : "Copy"} */}
+      {copiedField === "paybill" ? <Check size={16} /> : <Copy size={16} />}
+    </button>
+  </div>
+</li>
+
+<li>
+  Enter Account Number:
+  <div className="ew-copy-field">
+    <strong>{MPESA_ACCOUNT}</strong>
+    
+<button
+  type="button"
+  className="ew-copy-btn"
+  onClick={() => copyPaymentDetail(MPESA_ACCOUNT, "account")}
+  title="Copy account number"
+  aria-label="Copy account number"
+>
+  {copiedField === "account" ? (
+    <Check size={16} />
+  ) : (
+    <Copy size={16} />
+  )}
+</button>
+
+  </div>
+</li>
+
+          <li>
+            Enter the amount shown in your
+            booking confirmation.
+          </li>
+          <li>Enter your M-PESA PIN and pay.</li>
+          <li>
+            Copy the transaction receipt number
+            from the Safaricom SMS.
+          </li>
+        </ol>
+
+        {!receiptSubmitted ? (
+          <form onSubmit={submitMpesaReceipt}>
+            <label>
+              M-PESA Receipt Number
+              <input
+                type="text"
+                required
+                minLength={8}
+                maxLength={20}
+                value={mpesaReceipt}
+                onChange={e =>
+                  setMpesaReceipt(
+                    e.target.value.toUpperCase()
+                  )
+                }
+                placeholder="Enter Safaricom receipt number"
+                autoComplete="off"
+              />
+            </label>
+
+            {receiptError && (
+              <p className="ew-error" role="alert">
+                {receiptError}
+              </p>
+            )}
+
+            <button
+              className="ew-primary-button"
+              type="submit"
+              disabled={receiptBusy}
+              style={{ marginTop: 16 }}
+            >
+              {receiptBusy
+                ? "Submitting..."
+                : "Submit Payment Receipt"}
+              <ArrowRight size={18} />
+            </button>
+          </form>
+        ) : (
+          <div role="status" style={{ textAlign: "center" }}>
+            <CheckCircle2
+              size={48}
+              color="#24936B"
+            />
+
+            <h3>Receipt Submitted Successfully</h3>
+
+            <p>
+              Receipt: <strong>{mpesaReceipt}</strong>
+            </p>
+
+            <p>
+              Your payment details have been
+              submitted for administrator verification.
+              Your booking is not yet confirmed.
+            </p>
+          </div>
+        )}
+      </div>
+    )}
+
+    {payment !== "mpesa" && (
+      <p>
+        Your selected payment method is
+        {payment === "card" ? " card" : " cash"}.
+        Ewalel management will provide further
+        payment instructions.
+      </p>
+    )}
+
+    <button
+      className="ew-dark-button"
+      type="button"
+      onClick={() => navigate("Home")}
+    >
+      Back to homepage <ArrowRight size={18} />
+    </button>
+  </main>
+)}
+
+
 
       {/* CONTACT */}
 

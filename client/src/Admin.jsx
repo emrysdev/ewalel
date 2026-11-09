@@ -2,6 +2,19 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Overview, Revenue, Guests, Operations, Reports, PeriodBar, ExportBtn, periods } from "./Insights.jsx";
 
+// const IMAGE_BASE = (
+//   import.meta.env.VITE_API_URL ||
+//   "http://localhost:4001"
+// ).replace(/\/$/, "");
+
+// function getImageUrl(url) {
+//   if (!url) return "";
+
+//   if (/^https?:\/\//i.test(url)) return url;
+
+//   return `${IMAGE_BASE}${url.startsWith("/") ? "" : "/"}${url}`;
+// }
+
 const kes = n => "KES " + Number(n || 0).toLocaleString("en-KE");
 const addDays = (d, k) => new Date(Date.parse(d) + k * 864e5).toISOString().slice(0, 10);
 const COLORS = ["#B8441F", "#D9A066", "#9A4A2B", "#E9B79A", "#6A584C"];
@@ -38,10 +51,10 @@ function Bookings({ d, act, range }) {
     <div className="panel tw"><table><thead><tr><th>Guest</th><th>Penthouse</th><th>Check in</th><th>Check out</th><th>Status</th><th>Total</th><th>M-Pesa receipt</th><th /></tr></thead><tbody>
       {rows.map(b => <tr key={b.id}>
         <td><b>{b.name}</b><br /><small>{b.ref} · {b.phone}</small></td><td>{unit(b.unitId)}</td><td>{date(b, "checkIn")}</td><td>{date(b, "checkOut")}</td>
-        <td><select value={b.status} onChange={e => patch(b, { status: e.target.value }, "Status updated")}>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+        <td><select value={b.status} onChange={e => patch(b, { status: e.target.value }, "Status updated")}>{Object.entries(STATUS).filter(([k]) => k !== "confirmed" || b.status === "confirmed").map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
           {b.status === "awaiting_payment" && !b.live && <><br /><small>hold expired</small></>}</td>
         <td>{kes(b.total)}<br /><small>deposit {kes(b.deposit)}</small></td>
-        <td>{b.receipt || "-"}{b.status === "payment_submitted" && <><br /><button className="sm go" onClick={() => patch(b, { status: "confirmed" }, "Payment verified")}>Mark paid</button></>}</td>
+        <td>{b.receipt || "-"}{b.status === "payment_submitted" && <><br /><button className="sm go" onClick={() => window.alert("Use the M-PESA Payments tab to verify the actual transaction before confirming a booking.")}>Review M-PESA</button></>}</td>
         <td><button className="sm del" onClick={() => confirm(`Delete booking ${b.ref}?`) && act(() => api(`/admin/bookings/${b.id}`, { method: "DELETE", auth: true }), "Deleted")}>Delete</button></td>
       </tr>)}
       {!rows.length && <tr><td colSpan="8">No bookings yet.</td></tr>}
@@ -98,13 +111,107 @@ function Prices({ d, act }) {
 function Photos({ d, act }) {
   const up = (u, file) => { if (!file) return; const f = new FormData(); f.append("image", file); act(() => api(`/admin/units/${u.id}/images`, { method: "POST", auth: true, form: f }), "Photo added"); };
   return <>{d.units.map(u => <div key={u.id}><h2>{u.name}</h2>
-    <div className="panel"><div className="thumbs">{u.images.map((url, i) => <figure key={url}><img src={url} alt="" />
+    <div className="panel"><div className="thumbs">{u.images.map((url, i) => <figure key={url}>
+      {/* <img src={url} alt="" /> */}
       <figcaption>{i === 0 ? <span className="tag confirmed">Cover</span> : <button className="sm" onClick={() => act(() => api(`/admin/units/${u.id}/cover`, { method: "POST", auth: true, body: { url } }), "Cover changed")}>Make cover</button>}
         <button className="sm del" onClick={() => confirm("Delete this photo?") && act(() => api(`/admin/units/${u.id}/images?url=${encodeURIComponent(url)}`, { method: "DELETE", auth: true }), "Photo deleted")}>Delete</button></figcaption></figure>)}</div>
       <label>Add a photo (JPG, PNG or WebP, up to 8 MB)<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => { up(u, e.target.files[0]); e.target.value = ""; }} /></label></div></div>)}</>;
 }
 
-const TABS = [["overview", "Overview"], ["revenue", "Revenue"], ["guests", "Guests"], ["operations", "Operations"], ["bookings", "Bookings"], ["maintenance", "Maintenance"], ["prices", "Prices"], ["photos", "Photos"], ["reports", "Excel reports"]];
+function MpesaPayments() {
+  const [receipts, setReceipts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  const [notice, setNotice] = useState("");
+
+  // Uses the same-origin API when deployed, or VITE_API_URL locally.
+  const base = (import.meta.env.VITE_API_URL || window.location.origin).replace(/\/$/, "");
+
+  const request = async (path, options = {}) => {
+    const token = localStorage.getItem("ew_token");
+    const response = await fetch(`${base}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token || ""}`,
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+      },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+    return data;
+  };
+
+  const refresh = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await request("/api/admin/mpesa");
+      setReceipts(Array.isArray(data) ? data : []);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const review = async (p, decision) => {
+    if (p.status !== "pending" || busy) return;
+    const receipt = p.receipt_number;
+    let body = { receipt_number: receipt };
+    if (decision === "verify") {
+      const amountInput = window.prompt(`Enter the amount independently verified with Safaricom for ${receipt} (KES):`);
+      if (amountInput === null) return;
+      const amount = Number(amountInput);
+      if (!Number.isSafeInteger(amount) || amount <= 0) {
+        setError("Enter a positive whole-number KES amount."); return;
+      }
+      const evidence = window.prompt("Enter the Safaricom statement/transaction verification reference (not the guest's claim):");
+      if (evidence === null) return;
+      if (evidence.trim().length < 5) { setError("Verification reference is required."); return; }
+      if (!window.confirm(`Confirm you independently checked receipt ${receipt}, PayBill recipient and KES ${amount}? This will record revenue and confirm the booking if fully paid.`)) return;
+      body = { ...body, verified_amount: amount, verification_reference: evidence.trim() };
+    } else if (!window.confirm(`Reject receipt ${receipt}?`)) return;
+
+    setBusy(receipt);
+    setError(""); setNotice("");
+    try {
+      const result = await request(`/api/admin/mpesa/${decision}`, {
+        method: "POST", body: JSON.stringify(body)
+      });
+      setNotice(result.message || `Receipt ${decision === "verify" ? "verified" : "rejected"}.`);
+      await refresh();
+    } catch (e) { setError(e.message); }
+    finally { setBusy(""); }
+  };
+
+  return <>
+    <h2>M-PESA payment verification</h2>
+    <p className="hint">Check the actual Safaricom transaction before approving. A submitted receipt alone is not proof of payment. Full outstanding balance is required by the current verification endpoint.</p>
+    <p><button className="sm" onClick={refresh} disabled={loading}>{loading ? "Loading…" : "Refresh receipts"}</button></p>
+    {error && <p role="alert" style={{ color: "var(--red, #b91c1c)" }}>{error}</p>}
+    {notice && <p role="status">{notice}</p>}
+    <div className="panel tw"><table>
+      <thead><tr><th>Receipt</th><th>Booking</th><th>Guest</th><th>Booking total</th><th>Claimed amount</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody>
+        {receipts.map(p => <tr key={p.trans_id}>
+          <td>{p.receipt_number || "—"}</td>
+          <td>{p.booking_reference || p.booking_id || "—"}</td>
+          <td>{p.guest_name || "—"}</td>
+          <td>{kes(p.booking_total)}</td>
+          <td>{p.status === "pending" ? "Unverified" : kes(p.amount)}</td>
+          <td>{p.status}</td>
+          <td>{p.status === "pending" ? <>
+            <button className="sm go" disabled={!!busy} onClick={() => review(p, "verify")}>Verify</button>{" "}
+            <button className="sm del" disabled={!!busy} onClick={() => review(p, "reject")}>Reject</button>
+          </> : "Reviewed"}</td>
+        </tr>)}
+        {!receipts.length && <tr><td colSpan="7">No M-PESA receipts to display.</td></tr>}
+      </tbody>
+    </table></div>
+  </>;
+}
+
+const TABS = [["overview", "Overview"], ["revenue", "Revenue"], ["guests", "Guests"], ["operations", "Operations"], ["bookings", "Bookings"], ["mpesa", "M-PESA Payments"], ["maintenance", "Maintenance"], ["prices", "Prices"], ["photos", "Photos"], ["reports", "Excel reports"]];
 
 export default function Admin() {
   const [authed, setAuthed] = useState(!!localStorage.getItem("ew_token")), [d, setD] = useState(null), [tab, setTab] = useState("overview"), [msg, setMsg] = useState(""), [period, setPeriod] = useState("year");
@@ -116,7 +223,7 @@ export default function Admin() {
   if (!authed) return <Login onDone={() => setAuthed(true)} />;
   if (!d) return <p style={{ padding: 40 }}>Loading…</p>;
   const opts = periods(d.today), range = { from: opts[period][1], to: opts[period][2] };
-  const View = { overview: Overview, revenue: Revenue, guests: Guests, operations: Operations, bookings: Bookings, maintenance: Maintenance, prices: Prices, photos: Photos, reports: Reports }[tab];
+  const View = { overview: Overview, revenue: Revenue, guests: Guests, operations: Operations, bookings: Bookings, mpesa: MpesaPayments, maintenance: Maintenance, prices: Prices, photos: Photos, reports: Reports }[tab];
   return <div className="adm">
     <header><div className="wrap"><b style={{ fontFamily: "Fraunces,serif", fontSize: 20 }}>Ewalel admin</b>
       <nav>{TABS.map(([k, l]) => <button key={k} aria-current={tab === k} onClick={() => setTab(k)}>{l}</button>)}</nav>

@@ -12,7 +12,7 @@ import {
 import "./CottageManagement.css";
 
 const BASE = (
-  import.meta.env.VITE_API_URL || "http://localhost:4000"
+  import.meta.env.VITE_API_URL || "http://localhost:4001"
 ).replace(/\/$/, "");
 
 const emptyForm = {

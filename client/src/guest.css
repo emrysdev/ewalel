@@ -1212,3 +1212,44 @@ body {
     min-height: 650px;
   }
 }
+
+
+.ew-copy-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  margin: 8px 0 12px;
+  background: #f5f0eb;
+  border: 1px solid #e6d9cf;
+  border-radius: 10px;
+}
+
+.ew-copy-field strong {
+  font-size: 19px;
+  color: #002b3a;
+  letter-spacing: 1px;
+  user-select: all;
+}
+
+.ew-copy-btn {
+  border: 1px solid #006b58;
+  border-radius: 8px;
+  background: #006b58;
+  color: white;
+  padding: 9px 15px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ew-copy-btn:hover {
+  background: #004d40;
+}
+
+.ew-copy-btn:focus-visible {
+  outline: 3px solid #d9a066;
+  outline-offset: 2px;
+}

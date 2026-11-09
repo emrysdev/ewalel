@@ -1,0 +1,138 @@
+
+.ewalel-mpesa {
+  width: 100%;
+  max-width: 850px;
+  margin: 20px auto;
+  padding: 18px 12px;
+  background: #ffffff;
+  border: 1px solid #dedede;
+  border-radius: 18px;
+  box-sizing: border-box;
+  color: #171717;
+  font-family: Arial, sans-serif;
+}
+
+.ewalel-mpesa-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.ewalel-mpesa-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.ewalel-mpesa-badge {
+  background: #f1f1f1;
+  color: #222;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+}
+
+.ewalel-payment-number {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0 22px;
+  margin-bottom: 15px;
+  border-bottom: 1px solid #eeeeee;
+}
+
+.ewalel-payment-number p {
+  margin: 0 0 9px;
+  font-size: 14px;
+  color: #737373;
+}
+
+.ewalel-payment-number strong {
+  font-size: 23px;
+  font-weight: 600;
+  color: #111;
+}
+
+.ewalel-payment-number button {
+  width: auto;
+  flex-shrink: 0;
+  padding: 7px 15px;
+  border: 1px solid #d3d3d3;
+  border-radius: 25px;
+  background: #fff;
+  color: #666;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.ewalel-payment-number button:hover {
+  background: #f4f4f4;
+}
+
+.ewalel-mpesa form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ewalel-mpesa label {
+  color: #666;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ewalel-mpesa input {
+  width: 100%;
+  padding: 13px 18px;
+  border: 1px solid #e3e3e3;
+  border-radius: 25px;
+  font-size: 15px;
+  box-sizing: border-box;
+  background: white;
+  color: #222;
+}
+
+.ewalel-pay-button {
+  width: 100%;
+  margin-top: 3px;
+  padding: 13px;
+  border: none;
+  border-radius: 25px;
+  background: #073b43;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ewalel-pay-button:disabled {
+  background: #eeeeee;
+  color: #999999;
+  cursor: not-allowed;
+}
+
+.ewalel-payment-message {
+  margin-top: 14px;
+  color: #12633c;
+  font-size: 14px;
+}
+
+.ewalel-payment-note {
+  margin: 14px 0 0;
+  color: #777;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .ewalel-mpesa {
+    padding: 16px 12px;
+  }
+
+  .ewalel-payment-number strong {
+    font-size: 20px;
+  }
+}
