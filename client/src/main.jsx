@@ -20,6 +20,7 @@ import {
 import "./style.css";
 import Guest from "./Guest.jsx";
 import CottageManagement from "./components/CottageManagement.jsx";
+import ManualGuestRegistration from "./components/ManualGuestRegistration.jsx";
 
 // =====================================================
 // API CONFIGURATION
@@ -35,6 +36,19 @@ const BASE = (
     : window.location.origin
 ).replace(/\/$/, "");
 
+
+function getImageUrl(photoUrl) {
+  if (!photoUrl) return "";
+
+  // Keep existing full image URLs
+  if (/^https?:\/\//i.test(photoUrl)) {
+    return photoUrl;
+  }
+
+  // Convert relative image paths into backend URLs
+  return `${BASE}/${String(photoUrl).replace(/^\/+/, "")}`;
+}
+
 async function api(path, options = {}, token) {
   let response;
 
@@ -49,22 +63,33 @@ async function api(path, options = {}, token) {
         ...options.headers,
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("API connection error:", error);
+
     throw new Error(
-      "Unable to connect to the Ewalel server. Check your Railway deployment and API connection."
+      "Unable to connect to the Ewalel server."
     );
   }
 
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    console.error("Ewalel API error:", {
+      endpoint: path,
+      status: response.status,
+      response: data,
+    });
+
     throw new Error(
-      data.error || `Request failed (HTTP ${response.status})`
+      data.error ||
+      data.message ||
+      `Request failed (HTTP ${response.status})`
     );
   }
 
   return data;
 }
+
 
 const money = (value) =>
   "KES " + Number(value || 0).toLocaleString("en-KE");
@@ -902,6 +927,7 @@ function App() {
         ) : tab === "Reservations" ? (
           <ReservationsPanel
             sub={sub}
+            cottages={cottages}
             bookings={bookings}
             payments={payments}
             token={token}
@@ -1234,7 +1260,7 @@ const reservationStyle = {
 };
 
 
-function CustomerRetention({ bookings, payments, token, onError, onNotice, refresh }) {
+function CustomerRetention({ bookings, payments, cottages, token, onError, onNotice, refresh }) {
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1246,20 +1272,34 @@ function CustomerRetention({ bookings, payments, token, onError, onNotice, refre
   const [customers, setCustomers] = useState([]);
   const [events, setEvents] = useState([]);
   
-
 const stayStatus = (booking) => {
-  const stay = events.find(
-    (s) =>
-      (s.booking_id != null &&
-        String(s.booking_id) === String(booking.id)) ||
-      (s.booking_reference != null &&
-        booking.ref != null &&
-        String(s.booking_reference) === String(booking.ref))
+  // Support both the crm_guest_stays response and booking_stay_events response.
+  const related = events.filter((s) =>
+    (s.booking_id != null && String(s.booking_id) === String(booking.id)) ||
+    (s.booking_reference != null && booking.ref != null &&
+      String(s.booking_reference) === String(booking.ref))
   );
 
-  return stay?.stay_status || "not_checked_in";
-};
+  // A current stay-status record is authoritative when present.
+  const direct = related.find((s) =>
+    ["not_checked_in", "checked_in", "checked_out"].includes(s.stay_status)
+  );
+  if (direct) return direct.stay_status;
 
+  // Some backend versions return an event log rather than stay_status.
+  const latest = [...related].sort((a, b) => {
+    const dateDiff = new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    return dateDiff || Number(b.id || 0) - Number(a.id || 0);
+  })[0];
+  if (latest?.event_type === "check_out") return "checked_out";
+  if (latest?.event_type === "check_in") return "checked_in";
+
+  // Other backend versions store the stay state on the booking itself.
+  if (["checked_in", "checked_out"].includes(booking.status)) {
+    return booking.status;
+  }
+  return "not_checked_in";
+};
 
   const [busy, setBusy] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -1272,7 +1312,7 @@ const stayStatus = (booking) => {
       api("/admin/mpesa", {}, token).catch(() => []),
       api("/admin/customer-notes", {}, token).catch(() => []),
       api("/admin/customers", {}, token).catch(() => []),
-      api("/admin/stays", {}, token)
+      api("/admin/stays", {}, token).catch(() => [])
     ]);
     setReceipts(Array.isArray(r) ? r : []);
     setNotes(Array.isArray(n) ? n : []);
@@ -1296,7 +1336,7 @@ const stayStatus = (booking) => {
     const total = ps.reduce((n, p) => n + Number(p.amount || 0), 0);
     const completed = bs.filter(b => stayStatus(b) === "checked_out").length;
     const cancellations = bs.filter(b => b.status === "cancelled").length;
-    const next = bs.filter(b => ["confirmed", "checked_in"].includes(b.status) && new Date(b.check_out) >= new Date()).sort((a, b) => new Date(a.check_in) - new Date(b.check_in))[0];
+    const next = bs.filter(b => b.status === "confirmed" && stayStatus(b) !== "checked_out" && new Date(b.check_out) >= new Date()).sort((a, b) => new Date(a.check_in) - new Date(b.check_in))[0];
     const lastStay = bs.filter(b => stayStatus(b) === "checked_out").sort((a, b) => new Date(b.check_out) - new Date(a.check_out))[0];
     const inactive = Boolean(lastStay && !next && (Date.now() - new Date(lastStay.check_out).getTime()) > 180 * 86400000);
     return { ...g, bookings: bs, total, completed, cancellations, next, lastStay, inactive, first: bs.at(-1)?.created_at, last: bs[0]?.created_at, segment: bs.length >= 2 ? "Returning" : "New" };
@@ -1305,8 +1345,8 @@ const stayStatus = (booking) => {
     if (segment === "returning" && g.bookings.length < 2) return false;
     if (segment === "new" && g.bookings.length !== 1) return false;
     if (segment === "inactive" && !g.inactive) return false;
-    if (segment === "in-house" &&!g.bookings.some(b => stayStatus(b) === "checked_in")) return false;
-    if (statusFilter !== "all" &&!g.bookings.some(b =>["checked_in", "checked_out"].includes(statusFilter)? stayStatus(b) === statusFilter: b.status === statusFilter)) return false;
+    if (segment === "in-house" && !g.bookings.some(b => stayStatus(b) === "checked_in")) return false;
+    if (statusFilter !== "all" && !g.bookings.some(b => ["checked_in", "checked_out"].includes(statusFilter) ? stayStatus(b) === statusFilter : b.status === statusFilter)) return false;
     if (period !== "all" && !g.bookings.some(b => new Date(b.created_at) > new Date(Date.now() - Number(period) * 86400000))) return false;
     return [g.name, g.phone, g.email, ...g.bookings.map(b => b.ref || b.id)].join(" ").toLowerCase().includes(query.toLowerCase());
   });
@@ -1325,8 +1365,9 @@ const stayStatus = (booking) => {
   return <div className="ew-crm" style={{ width: "100%", maxWidth: 1720, margin: "0 auto", padding: "6px 0 25px", color: "#102d35" }}>
     <style>{`main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% - 40px)!important;margin-left:auto!important;margin-right:auto!important;padding-left:0!important;padding-right:0!important}@media(max-width:700px){main:has(> .breadcrumb):has(.ew-crm){width:calc(100% - 24px)!important}}.ew-crm *{box-sizing:border-box}.ew-crm button,.ew-crm input,.ew-crm select,.ew-crm textarea{font:inherit}.ew-crm button{cursor:pointer}.ew-crm button:disabled{opacity:.5;cursor:not-allowed}.ew-crm .crm-btn{border:1px solid #cbd8db;border-radius:10px;background:#fff;color:#173a40;padding:10px 15px;font-weight:600}.ew-crm .crm-primary{background:#103f43;color:#fff;border-color:#103f43}.ew-crm .crm-btn:hover:not(:disabled){filter:brightness(.94)}.ew-crm .crm-input{width:100%;padding:11px 13px;border:1px solid #cbd9db;border-radius:9px;background:#fff;color:#14383e}.ew-crm .crm-tabs{display:flex;gap:10px;flex-wrap:wrap}.ew-crm .crm-tabs button{flex:1;border:1px solid #d8e2e4;background:#fff;border-radius:26px;padding:11px;white-space:nowrap}.ew-crm .crm-tabs button.active{background:#104348;color:#fff}.ew-crm .crm-person{width:100%;text-align:left;border:1px solid #d9e5e2;border-radius:13px;padding:12px;background:#fff;margin:6px 0;display:flex;align-items:center;gap:12px}.ew-crm .crm-person.active{background:#e6f4ee;border-color:#64b6a3}.ew-crm .crm-avatar{width:50px;height:50px;border-radius:50%;background:#dceee4;display:grid;place-items:center;font-size:21px;color:#126047;flex-shrink:0}.ew-crm .crm-layout{display:grid;grid-template-columns:minmax(300px, 30%) minmax(0, 1fr);gap:20px;align-items:start}.ew-crm .crm-layout>aside,.ew-crm .crm-layout>main{min-width:0}.ew-crm .crm-layout>main{min-height:0}.ew-crm .crm-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.ew-crm .crm-actions{display:flex;gap:8px;flex-wrap:wrap}.ew-crm .crm-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}.ew-crm .crm-grid>section,.ew-crm .crm-grid>div{min-width:0}.ew-crm .crm-detail{padding:11px 0;border-bottom:1px solid #e5eceb;display:flex;justify-content:space-between;gap:15px}.ew-crm .crm-muted{color:#668086}.ew-crm .crm-mini{font-size:12px}.ew-crm .crm-booking{padding:15px;border:1px solid #d9e5e2;border-radius:12px;margin:12px 0}.ew-crm .crm-chip{border-radius:20px;padding:5px 9px;font-size:11px;background:#e6f3ec;color:#146340;font-weight:700}@media(max-width:1180px){.ew-crm .crm-grid{grid-template-columns:1fr}}@media(max-width:1050px){.ew-crm .crm-kpis{grid-template-columns:repeat(3,1fr)}}@media(max-width:750px){.ew-crm .crm-layout,.ew-crm .crm-grid{grid-template-columns:1fr}.ew-crm .crm-kpis{grid-template-columns:repeat(2,1fr)}.ew-crm .crm-head{flex-direction:column;align-items:flex-start!important}}`}</style>
     <div style={{ ...card, marginBottom: 18 }}>
-      <div className="crm-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 15, marginBottom: 24 }}><div><div style={{ fontSize: 12, letterSpacing: 2, color: "#b96a2d", fontWeight: 700 }}>EW A L E L  /  CUSTOMER RELATIONSHIPS</div><h1 style={{ fontSize: 30, margin: "8px 0 3px" }}>Customer Retention</h1><div className="crm-muted">Manage guests, track bookings and payments, and build lasting customer relationships.</div></div><div className="crm-actions"><button className="crm-btn crm-primary" onClick={() => setAddOpen(true)}>＋ Add Customer</button><button className="crm-btn" onClick={csv}>↓ Export (CSV)</button><button className="crm-btn" onClick={() => setInsights(v => !v)}>▥ Retention Insights</button></div></div>
-      <div className="crm-kpis">{stat("Total customers", profiles.length, T.green)}{stat("Total bookings", bookings.length, T.blue)}{stat("Completed stays", bookings.filter(b => stayStatus(b) === "checked_out").length, T.green)}{stat("Returning guests", `${profiles.filter(g => g.bookings.length >= 2).length} (${profiles.length ? Math.round(100 * profiles.filter(g => g.bookings.length >= 2).length / profiles.length) : 0}%)`, T.purple)}{stat("Cancellations", bookings.filter(b => b.status === "cancelled").length, T.red)}{stat("Verified spending", fmt(profiles.reduce((n, g) => n + g.total, 0)), T.gold)}</div>{insights && <p style={{ marginTop: 16, color: "#385c62" }}>Returning customer rate is based on multiple bookings linked by phone or email. Spending counts completed payments only. Use booking history to identify guests eligible for a consent-based follow-up.</p>}
+      <div className="crm-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 15, marginBottom: 24 }}><div><div style={{ fontSize: 12, letterSpacing: 2, color: "#b96a2d", fontWeight: 700 }}>EW A L E L  /  CUSTOMER RELATIONSHIPS</div><h1 style={{ fontSize: 30, margin: "8px 0 3px" }}>Customer Retention</h1><div className="crm-muted">Manage guests, track bookings and payments, and build lasting customer relationships.</div></div><div className="crm-actions"><ManualGuestRegistration cottages={cottages} token={token} onSaved={async () => { await refresh(); await reloadExtra(); onNotice("Walk-in booking saved."); }} onError={onError} /><button className="crm-btn" onClick={() => setAddOpen(true)}>＋ Add Contact</button><button className="crm-btn" onClick={csv}>↓ Export (CSV)</button><button className="crm-btn" onClick={() => setInsights(v => !v)}>▥ Retention Insights</button></div></div>
+      <div className="crm-kpis">{stat("Total customers", profiles.length, T.green)}{stat("Total bookings", bookings.length, T.blue)}{stat("Completed stays", bookings.filter(b => stayStatus(b) === "checked_out").length, T.green)}{stat("Returning guests", `${profiles.filter(g => g.bookings.length >= 2).length} (${profiles.length ? Math.round(100 * profiles.filter(g => g.bookings.length >= 2).length / profiles.length) : 0}%)`, T.purple)}{stat("Cancellations", bookings.filter(b => b.status === "cancelled").length, T.red)}{stat("Verified spending", fmt(profiles.reduce((n, g) => n + g.total, 0)), T.gold)}</div>
+      {insights && <p style={{ marginTop: 16, color: "#385c62" }}>Returning customer rate is based on multiple bookings linked by phone or email. Spending counts completed payments only. Use booking history to identify guests eligible for a consent-based follow-up.</p>}
     </div>
     <div className="crm-layout"><aside style={card}>
       <input className="crm-input" aria-label="Search customers" placeholder="Search name, phone, email or booking" value={query} onChange={e => setQuery(e.target.value)} />
@@ -1357,7 +1398,7 @@ const stayStatus = (booking) => {
   <h3>Guest check-in & check-out</h3>
 
   {current.bookings
-    .filter((b) => b.status === "confirmed")
+    .filter((b) => b.status !== "cancelled" && (b.status === "confirmed" || ["checked_in", "checked_out"].includes(stayStatus(b))))
     .map((b) => {
       const status = stayStatus(b);
 
@@ -1382,7 +1423,9 @@ const stayStatus = (booking) => {
             <strong>{status.replaceAll("_", " ")}</strong>
           </p>
 
-          {status !== "checked_out" && (
+          {status === "checked_out" ? (
+            <span className="crm-chip">Stay Completed</span>
+          ) : (
             <button
               type="button"
               disabled={busy}
@@ -1411,27 +1454,20 @@ const stayStatus = (booking) => {
         <div className="crm-tabs" style={{ marginBottom: 20 }}>{["Overview", "Bookings & Payments", "Activity & Notes", "Preferences", "Loyalty"].map(t => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>)}</div>
         {tab === "Overview" && <div className="crm-grid"><section style={card}><h3>Customer Summary</h3>{[["First booking", date(current.first)], ["Latest booking", date(current.last)], ["Total bookings", current.bookings.length], ["Completed stays", current.completed], ["Cancellations", current.cancellations], ["Verified spending", fmt(current.total)], ["Last stay", date(current.lastStay?.check_out)]].map(([a, b]) => <div className="crm-detail" key={a}><span>{a}</span><b>{b}</b></div>)}</section><div><section style={{ ...card, background: "#eaf8ef", marginBottom: 15 }}><h3>Next Stay</h3>{current.next ? <><strong>{date(current.next.check_in)} – {date(current.next.check_out)}</strong><p>{current.next.cottage_name || current.next.unit_id}</p><span className="crm-chip">{current.next.status.replaceAll("_", " ")}</span></> : <p>No upcoming confirmed stay</p>}</section><section style={{ ...card, background: "#edf5ff", marginBottom: 15 }}><h3>Retention Opportunity</h3><p>{current.bookings.length > 1 ? "Returning guest. Consider a personalized offer if marketing consent is recorded." : "New guest. Consider a post-stay feedback request with appropriate consent."}</p><button className="crm-btn" onClick={() => setTab("Loyalty")}>View loyalty</button></section><section style={card}><h3>Quick Actions</h3><div className="crm-actions"><button className="crm-btn" onClick={() => setTab("Activity & Notes")}>Add Note</button><button className="crm-btn" onClick={() => setTab("Bookings & Payments")}>View Stays</button><button className="crm-btn" onClick={() => setTab("Preferences")}>Preferences</button></div></section></div></div>}
         {tab === "Bookings & Payments" && <div><h3>Bookings & Payments</h3>{current.bookings.map(b => { const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking" key={b.id}><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>{ps.map(p => <p key={p.id} style={{ fontSize: 13, margin: "5px 0" }}>Payment: {p.payment_method} · {fmt(p.amount)} · {p.status} · Ref: {p.transaction_reference || "—"}</p>)}{rs.map(r => <p key={r.trans_id} style={{ fontSize: 13, margin: "5px 0" }}>M-PESA receipt: <b>{r.receipt_number || "Not provided"}</b> · {r.status} · {date(r.received_at)}</p>)}{!ps.length && !rs.length && <p className="crm-muted crm-mini">No recorded payment or receipt.</p>}
-{b.status === "confirmed" &&
-  stayStatus(b) !== "checked_out" && (
+{b.status !== "cancelled" &&
+  (b.status === "confirmed" || ["checked_in", "checked_out"].includes(stayStatus(b))) &&
+  (stayStatus(b) === "checked_out" ? (
+    <span className="crm-chip">Stay Completed</span>
+  ) : (
     <button
       type="button"
       disabled={busy}
       className="crm-btn crm-primary"
-      onClick={() =>
-        stayAction(
-          b,
-          stayStatus(b) === "checked_in"
-            ? "check-out"
-            : "check-in"
-        )
-      }
+      onClick={() => stayAction(b, stayStatus(b) === "checked_in" ? "check-out" : "check-in")}
     >
-      {stayStatus(b) === "checked_in"
-        ? "Check Out Guest"
-        : "Check In Guest"}
+      {busy ? "Saving…" : stayStatus(b) === "checked_in" ? "Check Out Guest" : "Check In Guest"}
     </button>
-  )}
-{/* {b.status === "checked_in" && <button disabled={busy} className="crm-btn crm-primary" onClick={() => stayAction(b, "check-out")}>Check Out Guest</button>} */}
+  ))}
 {events.filter(e => String(e.booking_id) === String(b.id)).map(e => <p key={e.id} className="crm-muted crm-mini">{e.event_type.replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div> })}{!current.bookings.length && <p>No bookings yet.</p>}</div>}
         {tab === "Activity & Notes" && <div><h3>Customer Activity & Notes</h3><form onSubmit={saveNote}><textarea className="crm-input" rows={3} placeholder="Add an internal customer service note" value={noteText} onChange={e => setNoteText(e.target.value)} required /><button className="crm-btn crm-primary" style={{ marginTop: 10 }} disabled={busy || !noteText.trim()}>Save Note</button></form><div style={{ marginTop: 18 }}>{notes.filter(n => customerRow && String(n.customer_id) === String(customerRow.id)).map(n => <div className="crm-booking" key={n.id}><p>{n.note}</p><small className="crm-muted">{date(n.created_at)}</small></div>)}{!customerRow && <p className="crm-muted">No saved customer notes.</p>}</div></div>}
         {tab === "Preferences" && <form onSubmit={savePreferences}><h3>Guest Preferences</h3><label>Preferred cottage<input className="crm-input" value={pref.preferred_cottage} onChange={e => setPref({ ...pref, preferred_cottage: e.target.value })} /></label><label style={{ display: "block", marginTop: 14 }}>Special requests<textarea className="crm-input" rows={4} value={pref.special_requests} onChange={e => setPref({ ...pref, special_requests: e.target.value })} /></label><label style={{ display: "flex", alignItems: "center", gap: 9, margin: "14px 0" }}><input type="checkbox" checked={pref.marketing_consent} onChange={e => setPref({ ...pref, marketing_consent: e.target.checked })} /> Marketing consent recorded</label><p className="crm-muted crm-mini">Only tick this when the guest has explicitly consented. This does not send messages.</p><button className="crm-btn crm-primary" disabled={busy}>Save Preferences</button></form>}
@@ -1442,7 +1478,7 @@ const stayStatus = (booking) => {
   </div>;
 }
 
-function ReservationsPanel({ sub, bookings, payments = [], token, refresh, setError, setNotice, openConfirmation }) {
+function ReservationsPanel({ sub, cottages = [], bookings, payments = [], token, refresh, setError, setNotice, openConfirmation }) {
   const [search, setSearch] = useState("");
   const [viewBooking, setViewBooking] = useState(null);
   const [cancellingId, setCancellingId] = useState(null);
@@ -1667,6 +1703,7 @@ function ReservationsPanel({ sub, bookings, payments = [], token, refresh, setEr
 
   if (sub === "Guests") return (
     <CustomerRetention
+      cottages={cottages}
       bookings={rows}
       payments={payments}
       token={token}

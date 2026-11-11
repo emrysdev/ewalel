@@ -20,8 +20,10 @@ import {
 } from "lucide-react";
 import "./guest.css";
 
+const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const API = (
-  import.meta.env.VITE_API_URL || "http://localhost:4001"
+  import.meta.env.VITE_API_URL ||
+  (isLocal ? "http://localhost:4000" : window.location.origin)
 ).replace(/\/$/, "");
 
 
@@ -103,9 +105,24 @@ function CopyNumber({ label, number }) {
 
 function imageUrl(value) {
   if (!value) return "";
-  if (/^(https?:|data:|blob:)/i.test(value)) return value;
-  if (value.startsWith("/uploads/")) return `${API}${value}`;
-  return value.startsWith("/") ? value : `/${value}`;
+  const url = String(value).trim();
+  if (!url) return "";
+  if (/^(data:|blob:)/i.test(url)) return url;
+  if (/^https?:\/\//i.test(url)) {
+    // Localhost links saved in the database must use the active API server.
+    try {
+      const parsed = new URL(url);
+      if (["localhost", "127.0.0.1"].includes(parsed.hostname)) {
+        return `${API}${parsed.pathname}${parsed.search}`;
+      }
+    } catch { /* Keep the original URL */ }
+    return url;
+  }
+  const path = `/${url.replace(/^\/+/, "")}`;
+  // Uploaded photos are served by Express, not the Vite frontend.
+  if (path.startsWith("/uploads/")) return `${API}${path}`;
+  // Images under client/public/images belong to the frontend.
+  return path;
 }
 
 function today() {
@@ -690,9 +707,16 @@ async function submitMpesaReceipt(event) {
                   <article className="ew-cottage-card" key={c.id}>
                     <div className="ew-cottage-image">
                       <img
-                        src={imageUrl(c.photo_url) ||
-                          photos[index % photos.length]}
+                        src={imageUrl(c.photo_url) || photos[index % photos.length]}
                         alt={c.name}
+                        loading="lazy"
+                        onError={(event) => {
+                          const fallback = photos[index % photos.length];
+                          if (!event.currentTarget.src.endsWith(fallback)) {
+                            console.warn("Cottage photo failed:", c.name, event.currentTarget.src);
+                            event.currentTarget.src = fallback;
+                          }
+                        }}
                       />
                       <span>EW A L E L STAY</span>
                     </div>
