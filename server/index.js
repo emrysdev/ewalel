@@ -1239,7 +1239,6 @@ app.use(
   })
 );
 
-
 // General API rate limiting
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -1616,34 +1615,7 @@ app.get("/api/cottages", asyncRoute(async (req, res) => {
 // ADMIN COTTAGES
 // ======================================================
 
-// 1. Middleware
-app.use(express.json());
 
-// 2. Static uploads
-
-app.use(
-  "/uploads",
-  (req, res, next) => {
-    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-    next();
-  },
-  express.static(uploadDir)
-);
-
-
-app.get("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
-  const cottages = await query(`
-    SELECT
-      *,
-      price AS nightly_rate,
-      cap AS capacity,
-      blurb AS description
-    FROM cottages
-    ORDER BY sort_order ASC, name ASC
-  `);
-
-  res.json(cottages);
-}));
 
 // 4. Other API routes go here
 
@@ -3374,6 +3346,96 @@ app.get("/api/admin/finance", auth, asyncRoute(async (req, res) => {
 }));
 
 
+
+// ADMIN WALK-IN REGISTRATION: atomic customer + booking + verified cash receipt.
+app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
+  const data = req.body || {};
+  const name = String(data.name || "").trim();
+  const phone = String(data.phone || "").trim();
+  const email = String(data.email || "").trim().toLowerCase();
+  const cottageId = String(data.cottage_id || "").trim();
+  const start = String(data.check_in || "");
+  const end = String(data.check_out || "");
+  const guests = Number(data.guests);
+  const cashReceived = Number(data.cash_received ?? 0);
+  const notes = String(data.notes || "").trim();
+  const verified = data.cash_verified === true;
+  const days = (Date.parse(end + "T12:00:00Z") - Date.parse(start + "T12:00:00Z")) / 86400000;
+  if (!name || name.length > 80 || !phone || phone.length > 20 ||
+      (email && (email.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) ||
+      !validCottageId(cottageId) || !validDate(start) || !validDate(end) ||
+      !Number.isInteger(days) || days < 1 || !Number.isInteger(guests) || guests < 1 ||
+      !Number.isSafeInteger(cashReceived) || cashReceived < 0 ||
+      (cashReceived > 0 && !verified) || notes.length > 300) {
+    return res.status(400).json({ error: "Invalid guest, dates or cash details. Confirm cash receipt before recording it." });
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    // Lock the cottage row: concurrent manual/web bookings cannot both pass availability checks.
+    const [cottages] = await conn.execute("SELECT id,name,price,cap,active FROM cottages WHERE id=? FOR UPDATE", [cottageId]);
+    const cottage = cottages[0];
+    if (!cottage || !Number(cottage.active) || guests > Number(cottage.cap)) {
+      await conn.rollback();
+      return res.status(400).json({ error: "Cottage inactive, missing or capacity exceeded" });
+    }
+    const [overlap] = await conn.execute(
+      "SELECT id FROM bookings WHERE unit_id=? AND status<>'cancelled' AND check_in<? AND check_out>? LIMIT 1",
+      [cottageId, end, start]
+    );
+    if (overlap.length) {
+      await conn.rollback();
+      return res.status(409).json({ error: "Cottage already booked for these dates" });
+    }
+    const total = days * Number(cottage.price);
+    if (!Number.isSafeInteger(total) || total <= 0 || cashReceived > total) {
+      await conn.rollback();
+      return res.status(400).json({ error: "Invalid price or cash amount exceeds booking total" });
+    }
+    const bookingId = "B" + crypto.randomBytes(8).toString("hex");
+    const bookingRef = "EW" + crypto.randomBytes(5).toString("hex").toUpperCase();
+    const status = cashReceived === total ? "confirmed" : "awaiting_payment";
+    const now = Date.now();
+    // Do not merge different guests merely because they have the same name.
+    const [existing] = await conn.execute(
+      "SELECT id FROM crm_customers WHERE (phone<>'' AND phone=?) OR (email<>'' AND email=?) LIMIT 1",
+      [phone, email]
+    );
+    let customerId = existing[0]?.id;
+    if (!customerId) {
+      const [created] = await conn.execute(
+        "INSERT INTO crm_customers (name,phone,email) VALUES (?,?,?)", [name,phone,email]
+      );
+      customerId = created.insertId;
+    }
+    await conn.execute(
+      `INSERT INTO bookings
+       (id,ref,unit_id,check_in,check_out,nights,guests,name,phone,email,notes,total,deposit,status,source,created_at,confirmed_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [bookingId,bookingRef,cottageId,start,end,days,guests,name,phone,email,notes,total,0,status,"admin",now,status==="confirmed"?now:null]
+    );
+    let receipt = null;
+    if (cashReceived > 0) {
+      receipt = "CASH-" + crypto.randomBytes(7).toString("hex").toUpperCase();
+      await conn.execute(
+        `INSERT INTO payments (booking_id,payment_method,amount,transaction_reference,status,paid_at)
+         VALUES (?,'cash',?,?,'completed',NOW())`,
+        [bookingId,cashReceived,receipt]
+      );
+    }
+    await conn.commit();
+    res.status(201).json({ ok:true, customer_id:customerId, booking_id:bookingId,
+      booking_ref:bookingRef, cottage_name:cottage.name, check_in:start, check_out:end,
+      nights:days, total, cash_received:cashReceived, outstanding:total-cashReceived,
+      status, receipt });
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}));
+
 // CUSTOMER RELATIONSHIP MANAGEMENT (authenticated administrator routes)
 app.get("/api/admin/customers",auth,asyncRoute(async(req,res)=>{
   res.json(await query("SELECT * FROM crm_customers ORDER BY created_at DESC"));
@@ -3414,45 +3476,6 @@ app.post("/api/admin/customer-notes",auth,asyncRoute(async(req,res)=>{
 // app.use((req, res) => {
 //   res.status(404).json({ error: "API endpoint not found" });
 // });
-
-app.use((err, req, res, next) => {
-  console.error(err);
-
-  if (err instanceof multer.MulterError) {
-    return res.status(400).json({ error: err.message });
-  }
-
-  if (
-    err.message === "Invalid image format" ||
-    err.message?.startsWith("Only JPG") ||
-    err.message?.includes("Input buffer contains unsupported")
-  ) {
-    return res.status(400).json({ error: err.message });
-  }
-
-  if (err.code === "ER_DUP_ENTRY") {
-    return res.status(409).json({ error: "Duplicate reference" });
-  }
-
-  res.status(500).json({
-    error: "Server error; check server logs"
-  });
-});
-
-
-
-const frontendDist = path.resolve(__dirname, "../client/dist");
-
-app.use(express.static(frontendDist));
-
-app.get("/{*path}", (req, res, next) => {
-  if (req.path.startsWith("/api/")) {
-    return next();
-  }
-
-  res.sendFile(path.join(frontendDist, "index.html"));
-});
-
 
 // ======================================================
 // SERVE EWALEL REACT FRONTEND
@@ -3509,18 +3532,6 @@ app.use((err, req, res, next) => {
 
   res.status(500).json({
     error: "Server error; check server logs"
-  });
-});
-
-app.use(express.static(clientDist));
-
-app.get("/{*path}", (req, res, next) => {
-  if (req.path === "/api" || req.path.startsWith("/api/")) {
-    return next();
-  }
-
-  res.sendFile(path.join(clientDist, "index.html"), err => {
-    if (err) next(err);
   });
 });
 
