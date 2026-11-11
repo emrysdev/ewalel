@@ -15,9 +15,12 @@ import {
   Clock,
   Menu,
   X,
+  Search, Eye, CreditCard, TrendingUp, Download, ArrowRight, CalendarCheck, CircleCheck, Ban, RefreshCw, BarChart3, Users, Filter,
 } from "lucide-react";
 
 import "./style.css";
+import FacilitiesPanel from "./components/FacilitiesPanel.jsx";
+import ReportsSuite from "./components/ReportsSuite.jsx";
 import Guest from "./Guest.jsx";
 import CottageManagement from "./components/CottageManagement.jsx";
 import ManualGuestRegistration from "./components/ManualGuestRegistration.jsx";
@@ -100,6 +103,7 @@ const tabs = [
   ["Cottages", House],
   ["Finance", Wallet],
   ["Reports", FileBarChart],
+  ["Facilities & Amenities", House],
 ];
 
 const sections = {
@@ -107,7 +111,8 @@ const sections = {
   Reservations: ["Bookings", "Guests", "Booking Confirmation"],
   Cottages: ["Manage cottages", "Maintenance"],
   Finance: ["Revenue & payments"],
-  Reports: ["Excel reports"],
+  Reports: ["Analytics & exports"],
+  "Facilities & Amenities": ["Facilities"],
 };
 
 const emptyMaintenance = {
@@ -174,14 +179,14 @@ function App() {
 
     try {
       const [c, m, b, p, f] = await Promise.all([
-        api("/admin/cottages", {}, token),
+        api("/cottages"),
         api("/admin/maintenance", {}, token),
         api("/admin/bookings", {}, token),
         api("/admin/payments", {}, token),
         api("/admin/finance", {}, token),
       ]);
 
-      setCottages(c);
+      setCottages(Array.isArray(c) ? c : []);
       setRecords(m);
       setBookings(b);
       setPayments(p);
@@ -399,656 +404,218 @@ function App() {
   // ===================================================
 
   return (
-    <>
-      <header>
-        <div className="header-inner">
-          <div className="brand">
-            <img
-              src="/images/ewalel-logo.png"
-              alt="Ewalel Cottages"
-              className="admin-brand-logo"
-              style={{
-                width: 75,
-                height: 75,
-                objectFit: "contain",
-                background: "transparent",
-              }}
-            />
+    <div className="ew-suite-shell">
+      <aside className={`ew-suite-sidebar ${mobile ? "is-open" : ""}`} aria-label="Main administration navigation">
+        <div className="ew-suite-logo"><img src="/images/ewalel-logo.png" alt="Ewalel Cottages" /><span>EWΑLEL<small>COTTAGES</small></span></div>
+        <div className="ew-suite-side-group">
+          <div className="ew-suite-side-heading">ACCOMMODATION</div>
+          <button className={tab === "Cottages" ? "is-parent" : ""} onClick={() => { setTab("Cottages"); setSub("Manage cottages"); setMobile(false); }}><House size={18} /> Cottages <ChevronDown size={14} className="ew-side-chevron" /></button>
+          <button className={tab === "Cottages" && sub === "Manage cottages" ? "is-selected is-child" : "is-child"} onClick={() => { setTab("Cottages"); setSub("Manage cottages"); setMobile(false); }}><House size={17} /> Properties</button>
+          <button className={tab === "Cottages" && sub === "Maintenance" ? "is-selected is-child" : "is-child"} onClick={() => { setTab("Cottages"); setSub("Maintenance"); setMobile(false); }}><Wrench size={17} /> Maintenance</button>
+          <button className={tab === "Facilities & Amenities" ? "is-selected is-child" : "is-child"} onClick={() => { setTab("Facilities & Amenities"); setSub("Facilities"); setMobile(false); }}><House size={17} /> Facilities & Amenities</button>
+        </div>
+        <div className="ew-suite-side-group ew-suite-side-other">
+          <button className={tab === "Overview" ? "is-selected" : ""} onClick={() => { setTab("Overview"); setSub("Dashboard"); setMobile(false); }}><LayoutDashboard size={18} /> Overview</button>
+          <button className={tab === "Reservations" && sub !== "Guests" ? "is-selected" : ""} onClick={() => { setTab("Reservations"); setSub("Bookings"); setMobile(false); }}><CalendarDays size={18} /> Reservations</button>
+          <button className={tab === "Reservations" && sub === "Guests" ? "is-selected" : ""} onClick={() => { setTab("Reservations"); setSub("Guests"); setMobile(false); }}><Users size={18} /> Guests</button>
+          <button className={tab === "Finance" ? "is-selected" : ""} onClick={() => { setTab("Finance"); setSub("Revenue & payments"); setMobile(false); }}><Wallet size={18} /> Finance</button>
+          <button className={tab === "Reports" ? "is-selected" : ""} onClick={() => { setTab("Reports"); setSub("Analytics & exports"); setMobile(false); }}><FileBarChart size={18} /> Reports</button>
+        </div>
+        <div className="ew-suite-side-foot">LAKE ELEMENTAITA · KENYA</div>
+      </aside>
+      <div className="ew-suite-workspace">
+        <header>
+          <div className="header-inner">
+            <div className="brand">
+              <div>
+                <strong>Admin</strong>
+                
+              </div>
+            </div>
 
-            <div>
-              <strong>Ewalel Admin</strong>
-              <small>COTTAGES MANAGEMENT</small>
+            <div className="header-right">
+              <span className="demo">
+                Ewalel Management System
+              </span>
+
+              <button
+                className="secondary"
+                onClick={logout}
+              >
+                Sign out
+              </button>
+
+              <button
+                className="menu"
+                onClick={() => setMobile(!mobile)}
+                aria-label="Toggle navigation"
+              >
+                {mobile ? <X /> : <Menu />}
+              </button>
             </div>
           </div>
 
-          <div className="header-right">
-            <span className="demo">
-              Ewalel Management System
-            </span>
+          <nav className={mobile ? "show" : ""}>
+            {tabs.map(([name, Icon]) => (
+              <button
+                key={name}
+                className={tab === name ? "active" : ""}
+                onClick={() => {
+                  setTab(name);
+                  setSub(sections[name][0]);
+                  setMobile(false);
+                  setFormOpen(false);
+                  setNotice("");
+                  setError("");
+                }}
+              >
+                <Icon size={16} />
+                {name}
+              </button>
+            ))}
+          </nav>
+        </header>
 
-            <button
-              className="secondary"
-              onClick={logout}
-            >
-              Sign out
-            </button>
-
-            <button
-              className="menu"
-              onClick={() => setMobile(!mobile)}
-              aria-label="Toggle navigation"
-            >
-              {mobile ? <X /> : <Menu />}
-            </button>
+        <main>
+          <div className="breadcrumb">
+            ADMINISTRATION / {tab.toUpperCase()} /{" "}
+            {sub.toUpperCase()}
           </div>
-        </div>
 
-        <nav className={mobile ? "show" : ""}>
-          {tabs.map(([name, Icon]) => (
-            <button
-              key={name}
-              className={tab === name ? "active" : ""}
-              onClick={() => {
-                setTab(name);
-                setSub(sections[name][0]);
-                setMobile(false);
-                setFormOpen(false);
-                setNotice("");
-                setError("");
-              }}
-            >
-              <Icon size={16} />
-              {name}
-            </button>
-          ))}
-        </nav>
-      </header>
-
-      <main>
-        <div className="breadcrumb">
-          ADMINISTRATION / {tab.toUpperCase()} /{" "}
-          {sub.toUpperCase()}
-        </div>
-
-        <div className="subnav">
-          {sections[tab].map((section) => (
-            <button
-              key={section}
-              className={
-                sub === section ? "active" : ""
-              }
-              onClick={() => {
-                setSub(section);
-                setFormOpen(false);
-                setNotice("");
-              }}
-            >
-              {section}
-            </button>
-          ))}
-        </div>
-
-        {error && (
-          <div className="notice" role="alert">
-            {error}
+          <div className="subnav">
+            {sections[tab].map((section) => (
+              <button
+                key={section}
+                className={
+                  sub === section ? "active" : ""
+                }
+                onClick={() => {
+                  setSub(section);
+                  setFormOpen(false);
+                  setNotice("");
+                }}
+              >
+                {section}
+              </button>
+            ))}
           </div>
-        )}
 
-        {notice && (
-          <div className="notice">
-            {notice}
-          </div>
-        )}
+          {error && (
+            <div className="notice" role="alert">
+              {error}
+            </div>
+          )}
 
-        {/* ===========================================
+          {notice && (
+            <div className="notice">
+              {notice}
+            </div>
+          )}
+
+          {/* ===========================================
             COTTAGE MANAGEMENT
         =========================================== */}
 
-        {tab === "Cottages" &&
-          sub === "Manage cottages" ? (
-          <CottageManagement
-            cottages={cottages}
-            token={token}
-            onRefresh={refresh}
-          />
+          {tab === "Facilities & Amenities" ? (
+            <FacilitiesPanel />
+          ) : tab === "Cottages" &&
+            sub === "Manage cottages" ? (
+            <CottageManagement
+              cottages={cottages}
+              token={token}
+              onRefresh={refresh}
+              bookings={bookings}
+              maintenance={records}
+            />
 
-        ) : tab === "Cottages" &&
-          sub === "Maintenance" ? (
-          <>
-            <div className="page-title">
-              <div>
-                <div className="eyebrow">
-                  PROPERTY OPERATIONS
-                </div>
-
-                <h1>Maintenance management</h1>
-
-                <p>
-                  Schedule cottage maintenance,
-                  track work and review service history.
-                </p>
-              </div>
-
-              <button
-                className="primary"
-                onClick={() =>
-                  setFormOpen(!formOpen)
-                }
-              >
-                <Plus size={18} />
-                Add maintenance
-              </button>
-            </div>
-
-            <div className="stats">
-              <article>
-                <span>Scheduled maintenance</span>
-
-                <div className="stat">
-                  <strong>
-                    {scheduledMaintenance.length}
-                  </strong>
-
-                  <Clock size={24} />
-                </div>
-
-                <small>Open work orders</small>
-              </article>
-
-              <article>
-                <span>Completed maintenance</span>
-
-                <div className="stat">
-                  <strong>
-                    {completedMaintenance.length}
-                  </strong>
-
-                  <CheckCircle2 size={24} />
-                </div>
-
-                <small>Historical records</small>
-              </article>
-
-              <article>
-                <span>Total maintenance spent</span>
-
-                <div className="stat">
-                  <strong className="money">
-                    {money(maintenanceCost)}
-                  </strong>
-
-                  <Wallet size={24} />
-                </div>
-
-                <small>Completed work only</small>
-              </article>
-            </div>
-
-            {formOpen && (
-              <section className="panel form-panel">
-                <div className="panel-title">
-                  <h2>Schedule maintenance</h2>
-
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={() =>
-                      setFormOpen(false)
-                    }
-                    aria-label="Close form"
-                  >
-                    <X />
-                  </button>
-                </div>
-
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-
-                    run(async () => {
-                      await api(
-                        "/admin/maintenance",
-                        {
-                          method: "POST",
-                          body: JSON.stringify(form),
-                        },
-                        token
-                      );
-
-                      setFormOpen(false);
-                      setForm(emptyMaintenance);
-                    });
-                  }}
-                >
-                  <div className="fields">
-                    <label>
-                      Cottage
-
-                      <select
-                        required
-                        value={form.cottage_id}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            cottage_id: e.target.value,
-                          })
-                        }
-                      >
-                        <option value="">
-                          Choose cottage
-                        </option>
-
-                        {cottages.map((c) => (
-                          <option
-                            key={c.id}
-                            value={c.id}
-                          >
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label>
-                      Maintenance date
-
-                      <input
-                        type="date"
-                        required
-                        value={form.scheduled_date}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            scheduled_date:
-                              e.target.value,
-                          })
-                        }
-                      />
-                    </label>
-
-                    <label className="wide">
-                      Task
-
-                      <input
-                        required
-                        value={form.task}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            task: e.target.value,
-                          })
-                        }
-                      />
-                    </label>
-
-                    <label>
-                      Assigned technician
-
-                      <input
-                        value={form.assigned_to}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            assigned_to:
-                              e.target.value,
-                          })
-                        }
-                      />
-                    </label>
-
-                    <label>
-                      Estimated cost (KES)
-
-                      <input
-                        type="number"
-                        min="0"
-                        value={form.estimated_cost}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            estimated_cost:
-                              e.target.value,
-                          })
-                        }
-                      />
-                    </label>
-
-                    <label className="wide">
-                      Notes
-
-                      <textarea
-                        rows="3"
-                        value={form.notes}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            notes: e.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-
-                  <button
-                    className="primary"
-                    type="submit"
-                  >
-                    Save maintenance
-                  </button>
-                </form>
-              </section>
-            )}
-
-            <section className="panel">
-              <div className="panel-title">
+          ) : tab === "Cottages" &&
+            sub === "Maintenance" ? (
+            <>
+              <div className="page-title">
                 <div>
-                  <h2>Maintenance records</h2>
-
-                  <p>
-                    Scheduled work and previous
-                    maintenance
-                  </p>
-                </div>
-
-                <div className="filters">
-                  {[
-                    "All",
-                    "Scheduled",
-                    "History",
-                  ].map((item) => (
-                    <button
-                      key={item}
-                      className={
-                        filter === item
-                          ? "selected"
-                          : ""
-                      }
-                      onClick={() =>
-                        setFilter(item)
-                      }
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="records">
-                {visibleMaintenance.length === 0 ? (
-                  <p className="empty">
-                    No maintenance records found.
-                  </p>
-                ) : (
-                  visibleMaintenance.map((record) => (
-                    <article
-                      className="record"
-                      key={record.id}
-                    >
-                      <div className="record-top">
-                        <div className="record-icon">
-                          <Wrench size={20} />
-                        </div>
-
-                        <div className="record-body">
-                          <h3>{record.task}</h3>
-
-                          <div className="meta">
-                            <span>
-                              <House size={14} />
-                              {record.cottage_name}
-                            </span>
-
-                            <span>
-                              <CalendarDays
-                                size={14}
-                              />
-                              {String(
-                                record.scheduled_date
-                              ).slice(0, 10)}
-                            </span>
-                          </div>
-                        </div>
-
-                        <span
-                          className={
-                            "status " +
-                            (record.status ===
-                              "completed"
-                              ? "complete"
-                              : "scheduled")
-                          }
-                        >
-                          {record.status.replace(
-                            "_",
-                            " "
-                          )}
-                        </span>
-                      </div>
-
-                      <div className="record-bottom">
-                        <strong>
-                          {money(
-                            record.actual_cost ??
-                            record.estimated_cost
-                          )}
-                        </strong>
-
-                        <button
-                          onClick={() =>
-                            setExpanded(
-                              expanded === record.id
-                                ? null
-                                : record.id
-                            )
-                          }
-                        >
-                          Details
-                          <ChevronDown size={15} />
-                        </button>
-                      </div>
-
-                      {expanded === record.id && (
-                        <div className="details">
-                          <p>
-                            <b>Assigned:</b>{" "}
-                            {record.assigned_to ||
-                              "Not assigned"}
-                          </p>
-
-                          <p>
-                            <b>Notes:</b>{" "}
-                            {record.notes || "None"}
-                          </p>
-
-                          {record.status !==
-                            "completed" &&
-                            record.status !==
-                            "cancelled" && (
-                              <button
-                                className="primary small"
-                                onClick={() => {
-                                  const entered =
-                                    window.prompt(
-                                      "Actual cost in KES",
-                                      String(
-                                        record.estimated_cost ??
-                                        0
-                                      )
-                                    );
-
-                                  if (entered === null)
-                                    return;
-
-                                  const actualCost =
-                                    Number(entered);
-
-                                  if (
-                                    !Number.isFinite(
-                                      actualCost
-                                    ) ||
-                                    actualCost < 0
-                                  ) {
-                                    setError(
-                                      "Enter a valid maintenance cost."
-                                    );
-                                    return;
-                                  }
-
-                                  run(() =>
-                                    api(
-                                      "/admin/maintenance/" +
-                                      record.id,
-                                      {
-                                        method: "PATCH",
-                                        body: JSON.stringify({
-                                          status:
-                                            "completed",
-                                          actual_cost:
-                                            actualCost,
-                                        }),
-                                      },
-                                      token
-                                    )
-                                  );
-                                }}
-                              >
-                                Mark completed
-                              </button>
-                            )}
-                        </div>
-                      )}
-                    </article>
-                  ))
-                )}
-              </div>
-            </section>
-          </>
-
-        ) : tab === "Reservations" ? (
-          <ReservationsPanel
-            sub={sub}
-            cottages={cottages}
-            bookings={bookings}
-            payments={payments}
-            token={token}
-            refresh={refresh}
-            setError={setError}
-            setNotice={setNotice}
-            openConfirmation={() => setSub("Booking Confirmation")}
-          />
-
-        ) : tab === "Finance" ||
-          tab === "Overview" ? (
-          <>
-            <div className="page-title">
-              <div>
-                <h1>
-                  {tab === "Finance"
-                    ? "Revenue & payments"
-                    : "Business overview"}
-                </h1>
-
-                <p>
-                  Automatically refreshed from
-                  MySQL every 15 seconds.
-                </p>
-              </div>
-            </div>
-
-            <div className="stats">
-              <article>
-                <span>Revenue collected</span>
-
-                <div className="stat">
-                  <strong className="money">
-                    {money(finance.revenue)}
-                  </strong>
-                </div>
-              </article>
-
-              <article>
-                <span>Outstanding payments</span>
-
-                <div className="stat">
-                  <strong className="money">
-                    {money(finance.outstanding)}
-                  </strong>
-                </div>
-              </article>
-
-              <article>
-                <span>Total bookings</span>
-
-                <div className="stat">
-                  <strong>
-                    {bookings.length}
-                  </strong>
-                </div>
-              </article>
-            </div>
-
-            <section className="panel">
-              <h2>Revenue by payment method</h2>
-
-              {[
-                "mpesa",
-                "card",
-                "cash",
-              ].map((method) => {
-                const amount = Number(
-                  (finance.methods || []).find(
-                    (item) =>
-                      item.method === method
-                  )?.amount || 0
-                );
-
-                const percentage =
-                  Number(finance.revenue) > 0
-                    ? Math.min(
-                      100,
-                      (amount /
-                        Number(finance.revenue)) *
-                      100
-                    )
-                    : 0;
-
-                return (
-                  <div
-                    className="payment-bar"
-                    key={method}
-                  >
-                    <div>
-                      {method.toUpperCase()}{" "}
-                      <strong>
-                        {money(amount)}
-                      </strong>
-                    </div>
-
-                    <div className="track">
-                      <div
-                        style={{
-                          width:
-                            percentage + "%",
-                        }}
-                      />
-                    </div>
+                  <div className="eyebrow">
+                    PROPERTY OPERATIONS
                   </div>
-                );
-              })}
-            </section>
 
-            {tab === "Finance" && (
-              <>
-                <section className="panel">
-                  <h2>
-                    Record verified payment
-                  </h2>
+                  <h1>Maintenance management</h1>
 
                   <p>
-                    Only mark a payment as
-                    completed after independently
-                    verifying the transaction.
+                    Schedule cottage maintenance,
+                    track work and review service history.
                   </p>
+                </div>
+
+                <button
+                  className="primary"
+                  onClick={() =>
+                    setFormOpen(!formOpen)
+                  }
+                >
+                  <Plus size={18} />
+                  Add maintenance
+                </button>
+              </div>
+
+              <div className="stats">
+                <article>
+                  <span>Scheduled maintenance</span>
+
+                  <div className="stat">
+                    <strong>
+                      {scheduledMaintenance.length}
+                    </strong>
+
+                    <Clock size={24} />
+                  </div>
+
+                  <small>Open work orders</small>
+                </article>
+
+                <article>
+                  <span>Completed maintenance</span>
+
+                  <div className="stat">
+                    <strong>
+                      {completedMaintenance.length}
+                    </strong>
+
+                    <CheckCircle2 size={24} />
+                  </div>
+
+                  <small>Historical records</small>
+                </article>
+
+                <article>
+                  <span>Total maintenance spent</span>
+
+                  <div className="stat">
+                    <strong className="money">
+                      {money(maintenanceCost)}
+                    </strong>
+
+                    <Wallet size={24} />
+                  </div>
+
+                  <small>Completed work only</small>
+                </article>
+              </div>
+
+              {formOpen && (
+                <section className="panel form-panel">
+                  <div className="panel-title">
+                    <h2>Schedule maintenance</h2>
+
+                    <button
+                      type="button"
+                      className="icon-button"
+                      onClick={() =>
+                        setFormOpen(false)
+                      }
+                      aria-label="Close form"
+                    >
+                      <X />
+                    </button>
+                  </div>
 
                   <form
                     onSubmit={(e) => {
@@ -1056,133 +623,125 @@ function App() {
 
                       run(async () => {
                         await api(
-                          "/admin/payments",
+                          "/admin/maintenance",
                           {
                             method: "POST",
-                            body: JSON.stringify(
-                              pform
-                            ),
+                            body: JSON.stringify(form),
                           },
                           token
                         );
 
-                        setPform(emptyPayment);
+                        setFormOpen(false);
+                        setForm(emptyMaintenance);
                       });
                     }}
                   >
                     <div className="fields">
                       <label>
-                        Booking
+                        Cottage
 
                         <select
                           required
-                          value={pform.booking_id}
+                          value={form.cottage_id}
                           onChange={(e) =>
-                            setPform({
-                              ...pform,
-                              booking_id:
-                                e.target.value,
+                            setForm({
+                              ...form,
+                              cottage_id: e.target.value,
                             })
                           }
                         >
                           <option value="">
-                            Select booking
+                            Choose cottage
                           </option>
 
-                          {bookings.map((b) => (
+                          {cottages.map((c) => (
                             <option
-                              key={b.id}
-                              value={b.id}
+                              key={c.id}
+                              value={c.id}
                             >
-                              #{b.id} —{" "}
-                              {b.guest_name}
+                              {c.name}
                             </option>
                           ))}
                         </select>
                       </label>
 
                       <label>
-                        Payment method
+                        Maintenance date
 
-                        <select
-                          value={pform.method}
+                        <input
+                          type="date"
+                          required
+                          value={form.scheduled_date}
                           onChange={(e) =>
-                            setPform({
-                              ...pform,
-                              method:
+                            setForm({
+                              ...form,
+                              scheduled_date:
                                 e.target.value,
                             })
                           }
-                        >
-                          <option value="mpesa">
-                            M-PESA
-                          </option>
+                        />
+                      </label>
 
-                          <option value="card">
-                            Credit / debit card
-                          </option>
+                      <label className="wide">
+                        Task
 
-                          <option value="cash">
-                            Cash
-                          </option>
-                        </select>
+                        <input
+                          required
+                          value={form.task}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              task: e.target.value,
+                            })
+                          }
+                        />
                       </label>
 
                       <label>
-                        Amount (KES)
+                        Assigned technician
+
+                        <input
+                          value={form.assigned_to}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              assigned_to:
+                                e.target.value,
+                            })
+                          }
+                        />
+                      </label>
+
+                      <label>
+                        Estimated cost (KES)
 
                         <input
                           type="number"
-                          min="1"
-                          required
-                          value={pform.amount}
+                          min="0"
+                          value={form.estimated_cost}
                           onChange={(e) =>
-                            setPform({
-                              ...pform,
-                              amount:
+                            setForm({
+                              ...form,
+                              estimated_cost:
                                 e.target.value,
                             })
                           }
                         />
                       </label>
 
-                      <label>
-                        M-PESA receipt /
-                        Payment reference
+                      <label className="wide">
+                        Notes
 
-                        <input
-                          value={pform.reference}
+                        <textarea
+                          rows="3"
+                          value={form.notes}
                           onChange={(e) =>
-                            setPform({
-                              ...pform,
-                              reference:
-                                e.target.value,
+                            setForm({
+                              ...form,
+                              notes: e.target.value,
                             })
                           }
                         />
-                      </label>
-
-                      <label>
-                        Status
-
-                        <select
-                          value={pform.status}
-                          onChange={(e) =>
-                            setPform({
-                              ...pform,
-                              status:
-                                e.target.value,
-                            })
-                          }
-                        >
-                          <option value="pending">
-                            Pending
-                          </option>
-
-                          <option value="completed">
-                            Completed — verified
-                          </option>
-                        </select>
                       </label>
                     </div>
 
@@ -1190,57 +749,508 @@ function App() {
                       className="primary"
                       type="submit"
                     >
-                      Save payment
+                      Save maintenance
                     </button>
                   </form>
                 </section>
+              )}
 
-                <section className="panel">
-                  <h2>
-                    Payment acknowledgement register
-                  </h2>
+              <section className="panel">
+                <div className="panel-title">
+                  <div>
+                    <h2>Maintenance records</h2>
 
-                  {payments.map((payment) => (
-                    <div
-                      className="record"
-                      key={payment.id}
-                    >
-                      #{payment.id}
-                      {" · "}
-                      {payment.guest_name}
-                      {" · "}
-                      {payment.method.toUpperCase()}
-                      {" · "}
-                      {money(payment.amount)}
-                      {" · "}
-                      {payment.reference ||
-                        "No reference"}
-                      {" · "}
-                      {payment.status}
-                    </div>
-                  ))}
+                    <p>
+                      Scheduled work and previous
+                      maintenance
+                    </p>
+                  </div>
 
-                  {payments.length === 0 && (
-                    <p>No payments yet.</p>
+                  <div className="filters">
+                    {[
+                      "All",
+                      "Scheduled",
+                      "History",
+                    ].map((item) => (
+                      <button
+                        key={item}
+                        className={
+                          filter === item
+                            ? "selected"
+                            : ""
+                        }
+                        onClick={() =>
+                          setFilter(item)
+                        }
+                      >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="records">
+                  {visibleMaintenance.length === 0 ? (
+                    <p className="empty">
+                      No maintenance records found.
+                    </p>
+                  ) : (
+                    visibleMaintenance.map((record) => (
+                      <article
+                        className="record"
+                        key={record.id}
+                      >
+                        <div className="record-top">
+                          <div className="record-icon">
+                            <Wrench size={20} />
+                          </div>
+
+                          <div className="record-body">
+                            <h3>{record.task}</h3>
+
+                            <div className="meta">
+                              <span>
+                                <House size={14} />
+                                {record.cottage_name}
+                              </span>
+
+                              <span>
+                                <CalendarDays
+                                  size={14}
+                                />
+                                {String(
+                                  record.scheduled_date
+                                ).slice(0, 10)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <span
+                            className={
+                              "status " +
+                              (record.status ===
+                                "completed"
+                                ? "complete"
+                                : "scheduled")
+                            }
+                          >
+                            {record.status.replace(
+                              "_",
+                              " "
+                            )}
+                          </span>
+                        </div>
+
+                        <div className="record-bottom">
+                          <strong>
+                            {money(
+                              record.actual_cost ??
+                              record.estimated_cost
+                            )}
+                          </strong>
+
+                          <button
+                            onClick={() =>
+                              setExpanded(
+                                expanded === record.id
+                                  ? null
+                                  : record.id
+                              )
+                            }
+                          >
+                            Details
+                            <ChevronDown size={15} />
+                          </button>
+                        </div>
+
+                        {expanded === record.id && (
+                          <div className="details">
+                            <p>
+                              <b>Assigned:</b>{" "}
+                              {record.assigned_to ||
+                                "Not assigned"}
+                            </p>
+
+                            <p>
+                              <b>Notes:</b>{" "}
+                              {record.notes || "None"}
+                            </p>
+
+                            {record.status !==
+                              "completed" &&
+                              record.status !==
+                              "cancelled" && (
+                                <button
+                                  className="primary small"
+                                  onClick={() => {
+                                    const entered =
+                                      window.prompt(
+                                        "Actual cost in KES",
+                                        String(
+                                          record.estimated_cost ??
+                                          0
+                                        )
+                                      );
+
+                                    if (entered === null)
+                                      return;
+
+                                    const actualCost =
+                                      Number(entered);
+
+                                    if (
+                                      !Number.isFinite(
+                                        actualCost
+                                      ) ||
+                                      actualCost < 0
+                                    ) {
+                                      setError(
+                                        "Enter a valid maintenance cost."
+                                      );
+                                      return;
+                                    }
+
+                                    run(() =>
+                                      api(
+                                        "/admin/maintenance/" +
+                                        record.id,
+                                        {
+                                          method: "PATCH",
+                                          body: JSON.stringify({
+                                            status:
+                                              "completed",
+                                            actual_cost:
+                                              actualCost,
+                                          }),
+                                        },
+                                        token
+                                      )
+                                    );
+                                  }}
+                                >
+                                  Mark completed
+                                </button>
+                              )}
+                          </div>
+                        )}
+                      </article>
+                    ))
                   )}
-                </section>
-              </>
-            )}
-          </>
+                </div>
+              </section>
+            </>
 
-        ) : (
-          <section className="panel">
-            <h1>Reports</h1>
+          ) : tab === "Reservations" ? (
+            <ReservationsPanel
+              sub={sub}
+              cottages={cottages}
+              bookings={bookings}
+              payments={payments}
+              token={token}
+              refresh={refresh}
+              setError={setError}
+              setNotice={setNotice}
+              openConfirmation={() => setSub("Booking Confirmation")}
+            />
 
-            <p>
-              View operational totals in Overview
-              and Finance. Excel exports are
-              planned for a later release.
-            </p>
-          </section>
-        )}
-      </main>
-    </>
+          ) : tab === "Finance" ||
+            tab === "Overview" ? (
+            <>
+              <div className="page-title">
+                <div>
+                  <h1>
+                    {tab === "Finance"
+                      ? "Revenue & payments"
+                      : "Business overview"}
+                  </h1>
+
+                  <p>
+                    Automatically refreshed from
+                    MySQL every 15 seconds.
+                  </p>
+                </div>
+              </div>
+
+              <div className="stats">
+                <article>
+                  <span>Revenue collected</span>
+
+                  <div className="stat">
+                    <strong className="money">
+                      {money(finance.revenue)}
+                    </strong>
+                  </div>
+                </article>
+
+                <article>
+                  <span>Outstanding payments</span>
+
+                  <div className="stat">
+                    <strong className="money">
+                      {money(finance.outstanding)}
+                    </strong>
+                  </div>
+                </article>
+
+                <article>
+                  <span>Total bookings</span>
+
+                  <div className="stat">
+                    <strong>
+                      {bookings.length}
+                    </strong>
+                  </div>
+                </article>
+              </div>
+
+              <section className="panel">
+                <h2>Revenue by payment method</h2>
+
+                {[
+                  "mpesa",
+                  "card",
+                  "cash",
+                ].map((method) => {
+                  const amount = Number(
+                    (finance.methods || []).find(
+                      (item) =>
+                        item.method === method
+                    )?.amount || 0
+                  );
+
+                  const percentage =
+                    Number(finance.revenue) > 0
+                      ? Math.min(
+                        100,
+                        (amount /
+                          Number(finance.revenue)) *
+                        100
+                      )
+                      : 0;
+
+                  return (
+                    <div
+                      className="payment-bar"
+                      key={method}
+                    >
+                      <div>
+                        {method.toUpperCase()}{" "}
+                        <strong>
+                          {money(amount)}
+                        </strong>
+                      </div>
+
+                      <div className="track">
+                        <div
+                          style={{
+                            width:
+                              percentage + "%",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </section>
+
+              {tab === "Finance" && (
+                <>
+                  <section className="panel">
+                    <h2>
+                      Record verified payment
+                    </h2>
+
+                    <p>
+                      Only mark a payment as
+                      completed after independently
+                      verifying the transaction.
+                    </p>
+
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+
+                        run(async () => {
+                          await api(
+                            "/admin/payments",
+                            {
+                              method: "POST",
+                              body: JSON.stringify(
+                                pform
+                              ),
+                            },
+                            token
+                          );
+
+                          setPform(emptyPayment);
+                        });
+                      }}
+                    >
+                      <div className="fields">
+                        <label>
+                          Booking
+
+                          <select
+                            required
+                            value={pform.booking_id}
+                            onChange={(e) =>
+                              setPform({
+                                ...pform,
+                                booking_id:
+                                  e.target.value,
+                              })
+                            }
+                          >
+                            <option value="">
+                              Select booking
+                            </option>
+
+                            {bookings.map((b) => (
+                              <option
+                                key={b.id}
+                                value={b.id}
+                              >
+                                #{b.id} —{" "}
+                                {b.guest_name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label>
+                          Payment method
+
+                          <select
+                            value={pform.method}
+                            onChange={(e) =>
+                              setPform({
+                                ...pform,
+                                method:
+                                  e.target.value,
+                              })
+                            }
+                          >
+                            <option value="mpesa">
+                              M-PESA
+                            </option>
+
+                            <option value="card">
+                              Credit / debit card
+                            </option>
+
+                            <option value="cash">
+                              Cash
+                            </option>
+                          </select>
+                        </label>
+
+                        <label>
+                          Amount (KES)
+
+                          <input
+                            type="number"
+                            min="1"
+                            required
+                            value={pform.amount}
+                            onChange={(e) =>
+                              setPform({
+                                ...pform,
+                                amount:
+                                  e.target.value,
+                              })
+                            }
+                          />
+                        </label>
+
+                        <label>
+                          M-PESA receipt /
+                          Payment reference
+
+                          <input
+                            value={pform.reference}
+                            onChange={(e) =>
+                              setPform({
+                                ...pform,
+                                reference:
+                                  e.target.value,
+                              })
+                            }
+                          />
+                        </label>
+
+                        <label>
+                          Status
+
+                          <select
+                            value={pform.status}
+                            onChange={(e) =>
+                              setPform({
+                                ...pform,
+                                status:
+                                  e.target.value,
+                              })
+                            }
+                          >
+                            <option value="pending">
+                              Pending
+                            </option>
+
+                            <option value="completed">
+                              Completed — verified
+                            </option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <button
+                        className="primary"
+                        type="submit"
+                      >
+                        Save payment
+                      </button>
+                    </form>
+                  </section>
+
+                  <section className="panel">
+                    <h2>
+                      Payment acknowledgement register
+                    </h2>
+
+                    {payments.map((payment) => (
+                      <div
+                        className="record"
+                        key={payment.id}
+                      >
+                        #{payment.id}
+                        {" · "}
+                        {payment.guest_name}
+                        {" · "}
+                        {payment.method.toUpperCase()}
+                        {" · "}
+                        {money(payment.amount)}
+                        {" · "}
+                        {payment.reference ||
+                          "No reference"}
+                        {" · "}
+                        {payment.status}
+                      </div>
+                    ))}
+
+                    {payments.length === 0 && (
+                      <p>No payments yet.</p>
+                    )}
+                  </section>
+                </>
+              )}
+            </>
+
+          ) : (
+            <ReportsSuite bookings={bookings} payments={payments} cottages={cottages} maintenance={records} />
+          )}
+        </main>
+      </div>
+      {mobile && <button className="ew-suite-scrim" aria-label="Close sidebar" onClick={() => setMobile(false)} />}
+    </div>
   );
 }
 
@@ -1271,35 +1281,35 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   const [notes, setNotes] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [events, setEvents] = useState([]);
-  
-const stayStatus = (booking) => {
-  // Support both the crm_guest_stays response and booking_stay_events response.
-  const related = events.filter((s) =>
-    (s.booking_id != null && String(s.booking_id) === String(booking.id)) ||
-    (s.booking_reference != null && booking.ref != null &&
-      String(s.booking_reference) === String(booking.ref))
-  );
 
-  // A current stay-status record is authoritative when present.
-  const direct = related.find((s) =>
-    ["not_checked_in", "checked_in", "checked_out"].includes(s.stay_status)
-  );
-  if (direct) return direct.stay_status;
+  const stayStatus = (booking) => {
+    // Support both the crm_guest_stays response and booking_stay_events response.
+    const related = events.filter((s) =>
+      (s.booking_id != null && String(s.booking_id) === String(booking.id)) ||
+      (s.booking_reference != null && booking.ref != null &&
+        String(s.booking_reference) === String(booking.ref))
+    );
 
-  // Some backend versions return an event log rather than stay_status.
-  const latest = [...related].sort((a, b) => {
-    const dateDiff = new Date(b.created_at || 0) - new Date(a.created_at || 0);
-    return dateDiff || Number(b.id || 0) - Number(a.id || 0);
-  })[0];
-  if (latest?.event_type === "check_out") return "checked_out";
-  if (latest?.event_type === "check_in") return "checked_in";
+    // A current stay-status record is authoritative when present.
+    const direct = related.find((s) =>
+      ["not_checked_in", "checked_in", "checked_out"].includes(s.stay_status)
+    );
+    if (direct) return direct.stay_status;
 
-  // Other backend versions store the stay state on the booking itself.
-  if (["checked_in", "checked_out"].includes(booking.status)) {
-    return booking.status;
-  }
-  return "not_checked_in";
-};
+    // Some backend versions return an event log rather than stay_status.
+    const latest = [...related].sort((a, b) => {
+      const dateDiff = new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      return dateDiff || Number(b.id || 0) - Number(a.id || 0);
+    })[0];
+    if (latest?.event_type === "check_out") return "checked_out";
+    if (latest?.event_type === "check_in") return "checked_in";
+
+    // Other backend versions store the stay state on the booking itself.
+    if (["checked_in", "checked_out"].includes(booking.status)) {
+      return booking.status;
+    }
+    return "not_checked_in";
+  };
 
   const [busy, setBusy] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -1385,90 +1395,92 @@ const stayStatus = (booking) => {
     </aside>
       <main style={card}>{!current ? <p className="crm-muted">Select a customer to view their profile.</p> : <>
         <div className="crm-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 15, marginBottom: 18 }}><div style={{ display: "flex", alignItems: "center", gap: 15 }}><div className="crm-avatar" style={{ width: 70, height: 70, fontSize: 27 }}>{current.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()}</div><div><h2 style={{ fontSize: 24, margin: "0 0 6px" }}>{current.name} <span className="crm-chip">{current.segment} Customer</span></h2><div className="crm-muted crm-mini">{current.phone || "No phone"} · {current.email || "No email"}</div></div></div><div className="crm-actions">{current.phone && <a className="crm-btn" href={`tel:${current.phone}`}>☎ Call</a>}{current.email && <a className="crm-btn" href={`mailto:${current.email}`}>✉ Email</a>}<button className="crm-btn" onClick={() => { const msg = `Hello ${current.name}, thank you for choosing Ewalel Cottages. We would love to welcome you again.`; navigator.clipboard.writeText(msg).then(() => onNotice("Follow-up message copied; not sent.")).catch(() => onError("Clipboard unavailable")); }}>Follow Up</button></div></div>
-        
-<section
-  className="crm-stay-management"
-  style={{
-    ...card,
-    marginBottom: 18,
-    background: "#f5faf8",
-    padding: 18,
-  }}
->
-  <h3>Guest check-in & check-out</h3>
 
-  {current.bookings
-    .filter((b) => b.status !== "cancelled" && (b.status === "confirmed" || ["checked_in", "checked_out"].includes(stayStatus(b))))
-    .map((b) => {
-      const status = stayStatus(b);
-
-      return (
-        <div
-          key={b.id}
+        <section
+          className="crm-stay-management"
           style={{
-            padding: 15,
-            borderBottom: "1px solid #dce7e2",
+            ...card,
+            marginBottom: 18,
+            background: "#f5faf8",
+            padding: 18,
           }}
         >
-          <strong>
-            {b.cottage_name || b.unit_id} · #{b.ref || b.id}
-          </strong>
+          <h3>Guest check-in & check-out</h3>
 
-          <p>
-            {date(b.check_in)} – {date(b.check_out)}
-          </p>
+          {current.bookings
+            .filter((b) => b.status !== "cancelled" && (b.status === "confirmed" || ["checked_in", "checked_out"].includes(stayStatus(b))))
+            .map((b) => {
+              const status = stayStatus(b);
 
-          <p>
-            Stay status:{" "}
-            <strong>{status.replaceAll("_", " ")}</strong>
-          </p>
+              return (
+                <div
+                  key={b.id}
+                  style={{
+                    padding: 15,
+                    borderBottom: "1px solid #dce7e2",
+                  }}
+                >
+                  <strong>
+                    {b.cottage_name || b.unit_id} · #{b.ref || b.id}
+                  </strong>
 
-          {status === "checked_out" ? (
-            <span className="crm-chip">Stay Completed</span>
-          ) : (
-            <button
-              type="button"
-              disabled={busy}
-              className="crm-btn crm-primary"
-              onClick={() =>
-                stayAction(
-                  b,
-                  status === "checked_in"
-                    ? "check-out"
-                    : "check-in"
-                )
-              }
-            >
-              {busy
-                ? "Saving…"
-                : status === "checked_in"
-                ? "Check Out Guest"
-                : "Check In Guest"}
-            </button>
-          )}
-        </div>
-      );
-    })}
-</section>
+                  <p>
+                    {date(b.check_in)} – {date(b.check_out)}
+                  </p>
+
+                  <p>
+                    Stay status:{" "}
+                    <strong>{status.replaceAll("_", " ")}</strong>
+                  </p>
+
+                  {status === "checked_out" ? (
+                    <span className="crm-chip">Stay Completed</span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="crm-btn crm-primary"
+                      onClick={() =>
+                        stayAction(
+                          b,
+                          status === "checked_in"
+                            ? "check-out"
+                            : "check-in"
+                        )
+                      }
+                    >
+                      {busy
+                        ? "Saving…"
+                        : status === "checked_in"
+                          ? "Check Out Guest"
+                          : "Check In Guest"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+        </section>
 
         <div className="crm-tabs" style={{ marginBottom: 20 }}>{["Overview", "Bookings & Payments", "Activity & Notes", "Preferences", "Loyalty"].map(t => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>)}</div>
         {tab === "Overview" && <div className="crm-grid"><section style={card}><h3>Customer Summary</h3>{[["First booking", date(current.first)], ["Latest booking", date(current.last)], ["Total bookings", current.bookings.length], ["Completed stays", current.completed], ["Cancellations", current.cancellations], ["Verified spending", fmt(current.total)], ["Last stay", date(current.lastStay?.check_out)]].map(([a, b]) => <div className="crm-detail" key={a}><span>{a}</span><b>{b}</b></div>)}</section><div><section style={{ ...card, background: "#eaf8ef", marginBottom: 15 }}><h3>Next Stay</h3>{current.next ? <><strong>{date(current.next.check_in)} – {date(current.next.check_out)}</strong><p>{current.next.cottage_name || current.next.unit_id}</p><span className="crm-chip">{current.next.status.replaceAll("_", " ")}</span></> : <p>No upcoming confirmed stay</p>}</section><section style={{ ...card, background: "#edf5ff", marginBottom: 15 }}><h3>Retention Opportunity</h3><p>{current.bookings.length > 1 ? "Returning guest. Consider a personalized offer if marketing consent is recorded." : "New guest. Consider a post-stay feedback request with appropriate consent."}</p><button className="crm-btn" onClick={() => setTab("Loyalty")}>View loyalty</button></section><section style={card}><h3>Quick Actions</h3><div className="crm-actions"><button className="crm-btn" onClick={() => setTab("Activity & Notes")}>Add Note</button><button className="crm-btn" onClick={() => setTab("Bookings & Payments")}>View Stays</button><button className="crm-btn" onClick={() => setTab("Preferences")}>Preferences</button></div></section></div></div>}
-        {tab === "Bookings & Payments" && <div><h3>Bookings & Payments</h3>{current.bookings.map(b => { const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking" key={b.id}><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>{ps.map(p => <p key={p.id} style={{ fontSize: 13, margin: "5px 0" }}>Payment: {p.payment_method} · {fmt(p.amount)} · {p.status} · Ref: {p.transaction_reference || "—"}</p>)}{rs.map(r => <p key={r.trans_id} style={{ fontSize: 13, margin: "5px 0" }}>M-PESA receipt: <b>{r.receipt_number || "Not provided"}</b> · {r.status} · {date(r.received_at)}</p>)}{!ps.length && !rs.length && <p className="crm-muted crm-mini">No recorded payment or receipt.</p>}
-{b.status !== "cancelled" &&
-  (b.status === "confirmed" || ["checked_in", "checked_out"].includes(stayStatus(b))) &&
-  (stayStatus(b) === "checked_out" ? (
-    <span className="crm-chip">Stay Completed</span>
-  ) : (
-    <button
-      type="button"
-      disabled={busy}
-      className="crm-btn crm-primary"
-      onClick={() => stayAction(b, stayStatus(b) === "checked_in" ? "check-out" : "check-in")}
-    >
-      {busy ? "Saving…" : stayStatus(b) === "checked_in" ? "Check Out Guest" : "Check In Guest"}
-    </button>
-  ))}
-{events.filter(e => String(e.booking_id) === String(b.id)).map(e => <p key={e.id} className="crm-muted crm-mini">{e.event_type.replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div> })}{!current.bookings.length && <p>No bookings yet.</p>}</div>}
+        {tab === "Bookings & Payments" && <div><h3>Bookings & Payments</h3>{current.bookings.map(b => {
+          const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking" key={b.id}><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>{ps.map(p => <p key={p.id} style={{ fontSize: 13, margin: "5px 0" }}>Payment: {p.payment_method} · {fmt(p.amount)} · {p.status} · Ref: {p.transaction_reference || "—"}</p>)}{rs.map(r => <p key={r.trans_id} style={{ fontSize: 13, margin: "5px 0" }}>M-PESA receipt: <b>{r.receipt_number || "Not provided"}</b> · {r.status} · {date(r.received_at)}</p>)}{!ps.length && !rs.length && <p className="crm-muted crm-mini">No recorded payment or receipt.</p>}
+            {b.status !== "cancelled" &&
+              (b.status === "confirmed" || ["checked_in", "checked_out"].includes(stayStatus(b))) &&
+              (stayStatus(b) === "checked_out" ? (
+                <span className="crm-chip">Stay Completed</span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="crm-btn crm-primary"
+                  onClick={() => stayAction(b, stayStatus(b) === "checked_in" ? "check-out" : "check-in")}
+                >
+                  {busy ? "Saving…" : stayStatus(b) === "checked_in" ? "Check Out Guest" : "Check In Guest"}
+                </button>
+              ))}
+            {events.filter(e => String(e.booking_id) === String(b.id)).map(e => <p key={e.id} className="crm-muted crm-mini">{e.event_type.replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div>
+        })}{!current.bookings.length && <p>No bookings yet.</p>}</div>}
         {tab === "Activity & Notes" && <div><h3>Customer Activity & Notes</h3><form onSubmit={saveNote}><textarea className="crm-input" rows={3} placeholder="Add an internal customer service note" value={noteText} onChange={e => setNoteText(e.target.value)} required /><button className="crm-btn crm-primary" style={{ marginTop: 10 }} disabled={busy || !noteText.trim()}>Save Note</button></form><div style={{ marginTop: 18 }}>{notes.filter(n => customerRow && String(n.customer_id) === String(customerRow.id)).map(n => <div className="crm-booking" key={n.id}><p>{n.note}</p><small className="crm-muted">{date(n.created_at)}</small></div>)}{!customerRow && <p className="crm-muted">No saved customer notes.</p>}</div></div>}
         {tab === "Preferences" && <form onSubmit={savePreferences}><h3>Guest Preferences</h3><label>Preferred cottage<input className="crm-input" value={pref.preferred_cottage} onChange={e => setPref({ ...pref, preferred_cottage: e.target.value })} /></label><label style={{ display: "block", marginTop: 14 }}>Special requests<textarea className="crm-input" rows={4} value={pref.special_requests} onChange={e => setPref({ ...pref, special_requests: e.target.value })} /></label><label style={{ display: "flex", alignItems: "center", gap: 9, margin: "14px 0" }}><input type="checkbox" checked={pref.marketing_consent} onChange={e => setPref({ ...pref, marketing_consent: e.target.checked })} /> Marketing consent recorded</label><p className="crm-muted crm-mini">Only tick this when the guest has explicitly consented. This does not send messages.</p><button className="crm-btn crm-primary" disabled={busy}>Save Preferences</button></form>}
         {tab === "Loyalty" && <section style={card}><h3>Customer Loyalty</h3><div className="crm-grid">{stat("Total bookings", current.bookings.length, T.blue)}{stat("Verified spending", fmt(current.total), T.gold)}</div><p style={{ marginTop: 20 }}>Customer segment: <b>{current.segment}</b></p><p className="crm-muted">Loyalty information is calculated from actual reservations and completed payments. No discount or loyalty points have been issued.</p><p>Marketing consent: <b>{customerRow?.marketing_consent ? "Recorded" : "Not recorded"}</b></p></section>}
@@ -1713,91 +1725,83 @@ function ReservationsPanel({ sub, cottages = [], bookings, payments = [], token,
     />
   );
 
-  return <section className="panel" style={{ padding: 28 }}>
-    <div style={reservationStyle.heading}>
-      <div><div className="eyebrow">RESERVATIONS / BOOKING MANAGEMENT</div>
-        <h1>Booking Management</h1><p>Search, view and manage every reservation, including cancelled bookings.</p></div>
+  const monthKey = value => {
+    if (!value) return null;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
+  const now = new Date();
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return { key, label: d.toLocaleDateString("en-GB", { month: "short" }), count: rows.filter(b => monthKey(b.created_at || b.createdAt) === key).length };
+  });
+  const maxMonth = Math.max(1, ...months.map(m => m.count));
+  const trendPoints = months.map((m, i) => `${42 + i * 108},${178 - m.count / maxMonth * 135}`).join(" ");
+  const statusSegments = [
+    { label: "Confirmed", count: rows.filter(b => b.status === "confirmed").length, color: "#08625f" },
+    { label: "Awaiting payment", count: rows.filter(b => b.status === "awaiting_payment").length, color: "#f7b96e" },
+    { label: "Payment submitted", count: rows.filter(b => b.status === "payment_submitted").length, color: "#8fbaf1" },
+    { label: "Awaiting confirmation", count: rows.filter(b => b.status === "awaiting_confirmation").length, color: "#a994ec" },
+    { label: "Cancelled", count: rows.filter(b => b.status === "cancelled").length, color: "#e77c82" },
+    { label: "Other", count: rows.filter(b => !["confirmed", "awaiting_payment", "payment_submitted", "awaiting_confirmation", "cancelled"].includes(b.status)).length, color: "#8294a2" },
+  ];
+  let running = 0;
+  const donut = rows.length ? `conic-gradient(${statusSegments.filter(x => x.count).map(segment => {
+    const a = running / rows.length * 100;
+    running += segment.count;
+    return `${segment.color} ${a}% ${running / rows.length * 100}%`;
+  }).join(",")})` : "#e8efef";
+  const confirmedRevenue = rows.filter(b => b.status === "confirmed").reduce((sum, b) => sum + (Number(displayTotal(b)) || 0), 0);
+  const exportBookings = () => {
+    const safe = v => `"${String(v ?? "").replace(/^[\s]*([=+@-])/, "'$1").replaceAll('"', '""')}"`;
+    const csvRows = [["Reference", "Guest", "Cottage", "Check in", "Check out", "Total (KES)", "Status"], ...filtered.map(b => [displayRef(b), displayName(b), b.cottage_name || b.unit_id || "", fmtDate(b.check_in), fmtDate(b.check_out), displayTotal(b) ?? "", b.status])];
+    const blob = new Blob(["\ufeff" + csvRows.map(r => r.map(safe).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "ewalel-bookings.csv"; a.click(); URL.revokeObjectURL(url);
+  };
 
-      <button className="primary" type="button" onClick={() => { setReviewBookingId(""); openConfirmation(); }}>Review payments & confirm</button>
+  return <section className="ew-booking-dashboard">
+    <div className="ew-booking-hero">
+      <div><div className="ew-hero-kicker">EWALel COTTAGES · RESERVATIONS</div><h1>Bookings Dashboard</h1><p>Manage reservations, track payments, and monitor guest stays.</p></div>
+      <button type="button" className="ew-hero-button" onClick={() => { setSearch(""); setStatusFilter("All"); refresh(); }}><RefreshCw size={17} /> Refresh bookings</button>
     </div>
-    <div style={reservationStyle.cards}>{counts.map(([label, value]) => <article key={label} style={{ ...reservationStyle.metric, background: bookingStatusColors[label]?.bg || "#F4F7F5", border: `1px solid ${bookingStatusColors[label]?.border || "#DEE7E3"}`, borderLeft: `5px solid ${bookingStatusColors[label]?.text || "#123D3D"}` }}>
-      <div style={{ fontSize: 13, color: bookingStatusColors[label]?.text || "#607b77", fontWeight: 600 }}>{label}</div>
-      <strong style={{ fontSize: 30, color: bookingStatusColors[label]?.text || "#123b40" }}>{value}</strong>
-    </article>)}</div>
-    <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 22 }}>
-      <input aria-label="Search bookings" style={{ ...reservationStyle.input, flex: "2 1 240px" }} placeholder="Search by guest, reference or cottage" value={search} onChange={e => setSearch(e.target.value)} />
-      <select aria-label="Filter by status" style={{ ...reservationStyle.input, flex: "1 1 180px" }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-        <option value="All">All statuses</option>
-        {statuses.map(status => <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}
-      </select>
+    <div className="ew-metrics">
+      {[
+        { label: "Total bookings", value: rows.length, icon: CalendarDays, color: "teal" },
+        { label: "Confirmed booking value", value: money(confirmedRevenue), icon: TrendingUp, color: "cream" },
+        { label: "Awaiting payment", value: rows.filter(b => b.status === "awaiting_payment").length, icon: CreditCard, color: "blue" },
+        { label: "Payment submitted", value: rows.filter(b => b.status === "payment_submitted").length, icon: Clock, color: "purple" },
+        { label: "Confirmed", value: rows.filter(b => b.status === "confirmed").length, icon: CircleCheck, color: "green" },
+      ].map(metric => <article key={metric.label} className={`ew-metric ew-metric-${metric.color}`}><metric.icon size={25} /><div><span>{metric.label}</span><strong>{metric.value}</strong></div></article>)}
     </div>
-    <div style={reservationStyle.grid}>{filtered.map(b => <article key={b.id} style={reservationStyle.card}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 14 }}>
-        <strong style={{ fontSize: 14, overflowWrap: "anywhere" }}>#{displayRef(b)}</strong>
-        <span style={{
-          ...reservationStyle.pill,
-          background: statusColor(b.status).bg,
-          color: statusColor(b.status).text,
-          border: `1px solid ${statusColor(b.status).border}`,
-          whiteSpace: "nowrap"
-        }}>{statusLabel(b.status)}</span>
-      </div>
-      <h3 style={{ marginBottom: 8 }}>{displayName(b)}</h3>
-      <p style={{ marginBottom: 5 }}><strong>Cottage:</strong> {b.cottage_name || b.unit_id || "—"}</p>
-      <p style={{ marginBottom: 5 }}><strong>Stay:</strong> {fmtDate(b.check_in)} – {fmtDate(b.check_out)}</p>
-      <p style={{ marginBottom: 16 }}><strong>Total:</strong> {displayTotal(b) == null ? "Unavailable" : money(displayTotal(b))}</p>
-      <div style={{ display: "grid", gap: "10px", marginTop: "16px" }}>
-        <button
-          type="button"
-          onClick={() => setViewBooking(b)}
-          style={{
-            width: "100%",
-            background: "#123D3D",
-            color: "#FFFFFF",
-            padding: "13px",
-            border: "none",
-            borderRadius: "10px",
-            fontWeight: "700",
-            cursor: "pointer"
-          }}
-        >
-          View booking
-        </button>
-
-        {canCancel(b) && (
-          <button
-            type="button"
-            disabled={cancellingId === b.id}
-            onClick={() => cancelBooking(b)}
-            style={{
-              width: "100%", padding: "12px", borderRadius: "10px",
-              border: "1px solid #b74a4a", background: "#fff5f5",
-              color: "#9b2929", fontWeight: 700, cursor: "pointer"
-            }}
-          >
-            {cancellingId === b.id ? "Cancelling..." : "Cancel booking"}
-          </button>
-        )}
-
-        {eligible.some(x => x.id === b.id) && (
-          <button
-            className="secondary"
-            type="button"
-            onClick={() => { setReviewBookingId(String(b.id)); openConfirmation(); }}
-            style={{
-              width: "100%",
-              padding: "12px",
-              borderRadius: "10px"
-            }}
-          >
-            Review payment
-          </button>
-        )}
-      </div>
-
-    </article>)}</div>
-    {!filtered.length && <p>No matching bookings found.</p>}
-
+    <div className="ew-analytics">
+      <section className="ew-widget"><div className="ew-widget-head"><h2><BarChart3 size={19} /> Booking trends</h2><span>Last 6 months · booking creation dates</span></div>
+        <div className="ew-chart"><svg viewBox="0 0 630 218" role="img" aria-label="Monthly booking counts for the last six months" preserveAspectRatio="none">
+          {[43, 88, 133, 178].map(y => <line key={y} x1="35" y1={y} x2="610" y2={y} stroke="#e7eeee" strokeWidth="1" />)}
+          <polygon points={`42,178 ${trendPoints} 582,178`} fill="#d8f2ed" opacity=".7" />
+          <polyline points={trendPoints} fill="none" stroke="#05887d" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+          {months.map((m, i) => <g key={m.key}><circle cx={42 + i * 108} cy={178 - m.count / maxMonth * 135} r="5" fill="#05887d" /><text x={42 + i * 108} y="207" textAnchor="middle" fontSize="14" fill="#617a7b">{m.label}</text><text x={42 + i * 108} y={Math.max(19, 165 - m.count / maxMonth * 135)} textAnchor="middle" fontSize="12" fill="#23645f">{m.count}</text></g>)}
+        </svg></div>
+      </section>
+      <section className="ew-widget"><div className="ew-widget-head"><h2><CalendarCheck size={19} /> Booking status</h2><span>All reservations</span></div>
+        <div className="ew-status-layout"><div className="ew-donut" style={{ background: donut }}><div><strong>{rows.length}</strong><span>Bookings</span></div></div>
+          <div className="ew-legend">{statusSegments.filter(x => x.count > 0).map(x => <div key={x.label}><span className="ew-dot" style={{ background: x.color }} /><span>{x.label}</span><b>{x.count}</b><small>{Math.round(x.count / rows.length * 100)}%</small></div>)}</div>
+        </div>
+      </section>
+    </div>
+    <div className="ew-bottom">
+      <section className="ew-widget ew-bookings-list"><div className="ew-widget-head"><h2><CalendarDays size={19} /> Reservations</h2><span>{filtered.length} shown</span></div>
+        <div className="ew-filters"><label><Search size={17} /><input aria-label="Search bookings" placeholder="Search guest, reference or cottage" value={search} onChange={e => setSearch(e.target.value)} /></label><label><Filter size={16} /><select aria-label="Filter booking status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="All">All statuses</option>{statuses.map(status => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></label></div>
+        <div className="ew-table-scroll"><table className="ew-booking-table"><thead><tr><th>Reference / guest</th><th>Cottage</th><th>Stay dates</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filtered.map(b => <tr key={b.id}><td><strong>#{displayRef(b)}</strong><small>{displayName(b)}</small></td><td>{b.cottage_name || b.unit_id || "—"}</td><td>{fmtDate(b.check_in)}<small>to {fmtDate(b.check_out)}</small></td><td><strong>{displayTotal(b) == null ? "—" : money(displayTotal(b))}</strong></td><td><span className="ew-status-pill" style={{ background: statusColor(b.status).bg, color: statusColor(b.status).text }}>{statusLabel(b.status)}</span></td><td><div className="ew-row-actions"><button type="button" title="View booking" aria-label={`View booking ${displayRef(b)}`} onClick={() => setViewBooking(b)}><Eye size={17} /></button>{eligible.some(x => x.id === b.id) && <button type="button" title="Review payment" aria-label={`Review payment ${displayRef(b)}`} onClick={() => { setReviewBookingId(String(b.id)); openConfirmation(); }}><CreditCard size={17} /></button>}{canCancel(b) && <button type="button" title="Cancel booking" aria-label={`Cancel booking ${displayRef(b)}`} disabled={cancellingId === b.id} onClick={() => cancelBooking(b)}><Ban size={17} /></button>}</div></td></tr>)}</tbody></table></div>
+        {!filtered.length && <p className="ew-empty">No bookings match your search.</p>}
+      </section>
+      <aside className="ew-widget ew-quick"><div className="ew-widget-head"><h2>Quick actions</h2></div>
+        <button type="button" onClick={() => { setReviewBookingId(""); openConfirmation(); }}><CreditCard size={19} /> Review payments & confirm <ArrowRight size={17} /></button>
+        <button type="button" onClick={exportBookings}><Download size={19} /> Export bookings (CSV) <ArrowRight size={17} /></button>
+        <div className="ew-quick-note"><Users size={19} /><div><strong>Guest management</strong><p>Use the Guests tab to manage guest profiles and stay records.</p></div></div>
+      </aside>
+    </div>
     {viewBooking && (
       <div
         onClick={() => setViewBooking(null)}
