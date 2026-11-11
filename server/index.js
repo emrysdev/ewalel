@@ -1234,8 +1234,8 @@ app.use(
   helmet({
     contentSecurityPolicy: false,
     crossOriginResourcePolicy: {
-      policy: "cross-origin"
-    }
+      policy: "cross-origin",
+    },
   })
 );
 
@@ -1509,14 +1509,32 @@ console.log("AVAILABLE PHOTOS:", files);
 
 
 
-app.use("/uploads", express.static(uploadDir, {
-  index: false,
-  dotfiles: "deny",
-  setHeaders(res) {
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Cache-Control", "public, max-age=3600");
-  }
-}));
+
+
+app.use(
+  "/uploads",
+  (req, res, next) => {
+    res.setHeader(
+      "Cross-Origin-Resource-Policy",
+      "cross-origin"
+    );
+    next();
+  },
+  express.static(uploadDir, {
+    index: false,
+    dotfiles: "deny",
+    setHeaders(res) {
+      res.setHeader(
+        "Cross-Origin-Resource-Policy",
+        "cross-origin"
+      );
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Cache-Control", "public, max-age=3600");
+    },
+  })
+);
+
+
 
 const uploadPhotos = multer({
   storage: multer.memoryStorage(),

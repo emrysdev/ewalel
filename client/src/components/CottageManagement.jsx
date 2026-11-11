@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   Plus,
   Pencil,
@@ -7,45 +7,107 @@ import {
   Trash2,
   X,
   Upload,
-  Star
+  Star, Search, House, Users, BedDouble, CalendarDays, Coins, Wrench, Images as GalleryIcon, LayoutDashboard, Tag, MapPin, ArrowUpRight, ChevronRight, ClipboardList, CheckCircle2, AlertCircle, TrendingUp, PlusCircle
 } from "lucide-react";
 import "./CottageManagement.css";
+// import "./PropertyStudio.css";
 
 
-// const API_BASE = (
-//   import.meta.env.VITE_API_URL ||
-//   (window.location.hostname === "localhost"
-//     ? "http://localhost:4001"
-//     : window.location.origin)
-// ).replace(/\/$/, "");
-
-// function imageUrl(path) {
-//   if (!path) return "";
-
-//   if (/^https?:\/\//i.test(path)) {
-//     return path;
-//   }
-
-//   return `${API_BASE}/${String(path).replace(/^\/+/, "")}`;
-// }
-
-
+// Use the Express backend locally and the current website in production.
+const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const BASE = (
-  import.meta.env.VITE_API_URL || "http://localhost:4001"
+  isLocal
+    ? import.meta.env.VITE_API_URL || "http://localhost:4000"
+    : window.location.origin
 ).replace(/\/$/, "");
+
+
 
 function imageUrl(url) {
   if (!url) return "";
-
   const value = String(url).trim();
+  if (!value) return "";
+  if (/^(data:|blob:)/i.test(value)) return value;
 
   if (/^https?:\/\//i.test(value)) {
+    try {
+      const parsed = new URL(value);
+      // Old saved local URLs should use the active backend instead.
+      if (["localhost", "127.0.0.1"].includes(parsed.hostname)) {
+        return `${BASE}${parsed.pathname}${parsed.search}`;
+      }
+    } catch {
+      return value;
+    }
     return value;
   }
 
-  return `${BASE}/${value.replace(/^\/+/, "")}`;
+  const path = `/${value.replace(/^\/+/, "")}`;
+  if (path.startsWith("/images/")) return path;
+  return `${BASE}${path}`;
 }
 
+function CottagePhoto({ src, alt, style, showDetails = false }) {
+  const [failed, setFailed] = useState(false);
+  const resolvedUrl = imageUrl(src);
+  useEffect(() => setFailed(false), [resolvedUrl]);
+
+  if (!resolvedUrl || failed) {
+    return (
+      <div
+        className="cm-no-image"
+        style={{
+          ...style,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          background: "#e9eeee",
+          color: "#53666a",
+          textAlign: "center",
+          padding: 12,
+          overflowWrap: "anywhere",
+        }}
+      >
+        <span>Photograph unavailable</span>
+        {showDetails && (
+          <>
+            <small style={{ fontSize: 10, maxWidth: "100%" }}>
+              {src ? String(src) : "No image URL in gallery record"}
+            </small>
+            {resolvedUrl && (
+              <a
+                href={resolvedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ fontSize: 11, color: "#075985" }}
+              >
+                Test image URL
+              </a>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={resolvedUrl}
+      alt={alt}
+      style={style}
+      loading="lazy"
+      onError={() => {
+        console.warn("Ewalel cottage photograph failed:", {
+          source: src,
+          resolvedUrl,
+        });
+        setFailed(true);
+      }}
+    />
+  );
+}
 
 const emptyForm = {
   name: "",
@@ -64,9 +126,14 @@ const emptyForm = {
 export default function CottageManagement({
   cottages = [],
   token,
-  onRefresh
+  onRefresh,
+  bookings = [],
+  maintenance = []
 }) {
   const [editing, setEditing] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
+  const [section, setSection] = useState("Overview");
+  const [query, setQuery] = useState("");
   const [photoCottage, setPhotoCottage] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [selectedPhotos, setSelectedPhotos] = useState([]);
@@ -321,109 +388,42 @@ export default function CottageManagement({
     }
   }
 
+  const selected = cottages.find(c => String(c.id) === String(selectedId)) || cottages[0];
+  const visible = cottages.filter(c => `${c.name} ${c.location}`.toLowerCase().includes(query.toLowerCase()));
+  const active = cottages.filter(c => c.active !== false && c.active !== 0 && c.active !== "0");
+  const money = v => `KES ${Number(v || 0).toLocaleString("en-KE")}`;
+  const propertyBookings = selected ? bookings.filter(b => String(b.cottage_id) === String(selected.id)) : [];
+  const propertyMaintenance = selected ? maintenance.filter(m => String(m.cottage_id) === String(selected.id)) : [];
+  const confirmed = propertyBookings.filter(b => ["confirmed", "checked_in", "checked_out"].includes(String(b.status).toLowerCase()));
+  const openIssues = maintenance.filter(m => !["completed", "resolved", "closed"].includes(String(m.status).toLowerCase()));
+  const today = new Date().toISOString().slice(0, 10);
+  const occupied = cottages.filter(c => bookings.some(b => String(b.cottage_id) === String(c.id) && ["confirmed", "checked_in"].includes(String(b.status).toLowerCase()) && String(b.check_in || b.checkin_date || b.check_in_date || "").slice(0,10) <= today && String(b.check_out || b.checkout_date || b.check_out_date || "").slice(0,10) > today)).length;
+  const bookingDatesAvailable = bookings.some(b => b.check_in || b.checkin_date || b.check_in_date);
+  const stats = [
+    { icon: House, label: "Total properties", value: String(cottages.length).padStart(2,"0") },
+    { icon: Users, label: "Guest capacity", value: cottages.reduce((a,c)=>a+Number(c.capacity||0),0) },
+    { icon: BedDouble, label: "Active listings", value: String(active.length).padStart(2,"0") },
+    { icon: CalendarDays, label: "Occupancy today", value: bookingDatesAvailable && active.length ? `${Math.round(occupied/active.length*100)}%` : "—" },
+    { icon: Wrench, label: "Maintenance alerts", value: openIssues.length },
+    { icon: Coins, label: "Nightly value", value: money(active.reduce((a,c)=>a+Number(c.nightly_rate||0),0)) }
+  ];
   return (
-    <div className="cm-container">
-      <div className="cm-heading">
-        <div>
-          <h1>Cottage management</h1>
-          <p>Manage your cottages, prices, details and photos</p>
-        </div>
-        <span className="cm-admin-badge">Admin</span>
+    <div className="cm-container ps-root">
+      <header className="ps-hero"><div className="ps-hero-copy"><span>EWАLEL COTTAGES · ACCOMMODATION</span><h1>Property Management</h1><p>Manage your accommodation portfolio, availability, pricing and operations.</p></div><div className="ps-hero-count"><MapPin size={20}/><div><strong>{cottages.length} Properties</strong><small>Lake Elementaita</small></div></div></header>
+      <div className="ps-stats">{stats.map(({icon:Icon,label,value})=><div className="ps-stat" key={label}><div className="ps-stat-icon"><Icon size={22}/></div><div><span>{label}</span><strong>{value}</strong></div></div>)}</div>
+      <div className="ps-workspace">
+        <aside className="ps-list-panel"><div className="ps-list-heading"><h2>Properties <span>({cottages.length})</span></h2><button className="ps-primary" onClick={openAdd}><Plus size={16}/> Add property</button></div><label className="ps-search"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search properties..." /></label><div className="ps-list">{visible.map(c=><button key={c.id} className={`ps-property ${selected && String(selected.id)===String(c.id)?"selected":""}`} onClick={()=>{setSelectedId(c.id);setSection("Overview")}}><CottagePhoto src={c.photo_url} alt={c.name}/><div className="ps-property-text"><div className="ps-property-title"><strong>{c.name}</strong><span className={c.active===false || c.active===0?"ps-inactive":"ps-active"}>{c.active===false || c.active===0?"Archived":"Active"}</span></div><small><MapPin size={12}/>{c.location}</small><small><Users size={12}/>{c.capacity} guests</small><b>{money(c.nightly_rate)} <em>/ night</em></b></div><ChevronRight size={18}/></button>)}{!visible.length && <p className="ps-muted">No matching properties.</p>}</div></aside>
+        <section className="ps-detail-panel">{selected ? <>
+          <div className="ps-profile"><CottagePhoto src={selected.photo_url} alt={selected.name}/><div className="ps-profile-text"><div className="ps-profile-title"><h2>{selected.name}</h2><span className="ps-active">{selected.active===false || selected.active===0?"Archived":"Active"}</span></div><div className="ps-meta"><span><MapPin size={15}/>{selected.location}</span><span><Users size={15}/>{selected.capacity} guests</span></div><strong>{money(selected.nightly_rate)} <small>/ night</small></strong></div><button className="ps-primary ps-edit" onClick={()=>openEdit(selected)}><Pencil size={16}/> Edit property</button></div>
+          <nav className="ps-tabs">{[["Overview",LayoutDashboard],["Gallery",GalleryIcon],["Bookings",CalendarDays],["Pricing",Tag],["Maintenance",Wrench]].map(([name,Icon])=><button key={name} className={section===name?"active":""} onClick={()=>setSection(name)}><Icon size={16}/>{name}</button>)}</nav>
+          {section==="Overview" && <><div className="ps-detail-grid"><article className="ps-panel"><h3><ClipboardList size={19}/> Property overview</h3><dl>{[["Property name",selected.name],["Location",selected.location],["Capacity",`${selected.capacity} guests`],["Nightly rate",money(selected.nightly_rate)],["Status",selected.active===false || selected.active===0?"Archived":"Active"]].map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>{selected.description && <p className="ps-description">{selected.description}</p>}</article><article className="ps-panel"><h3><TrendingUp size={19}/> Property activity</h3><div className="ps-mini-grid"><div><small>Total bookings</small><strong>{propertyBookings.length}</strong></div><div><small>Confirmed bookings</small><strong>{confirmed.length}</strong></div><div><small>Maintenance records</small><strong>{propertyMaintenance.length}</strong></div><div><small>Recorded revenue</small><strong className="ps-revenue-na">See Finance</strong></div></div><p className="ps-footnote">Booking counts use loaded records. Revenue is not estimated from reservations.</p></article></div><article className="ps-panel ps-quick"><h3><ArrowUpRight size={19}/> Quick actions</h3><div className="ps-action-grid"><button onClick={()=>{setSection("Gallery");openGallery(selected)}}><GalleryIcon size={19}/> Manage photos</button><button onClick={()=>setSection("Bookings")}><CalendarDays size={19}/> View bookings</button><button onClick={()=>setSection("Pricing")}><Tag size={19}/> Update pricing</button><button onClick={()=>setSection("Maintenance")}><Wrench size={19}/> Maintenance</button></div></article></>}
+          {section==="Gallery" && <article className="ps-panel ps-tab-panel"><h3><GalleryIcon size={19}/> Property gallery</h3><p>Upload, review, set a cover image, or remove photographs for {selected.name}.</p><div className="ps-gallery-preview"><CottagePhoto src={selected.photo_url} alt={selected.name}/></div><button className="ps-primary" onClick={()=>openGallery(selected)}><GalleryIcon size={17}/> Open photo manager</button></article>}
+          {section==="Bookings" && <article className="ps-panel ps-tab-panel"><h3><CalendarDays size={19}/> Reservations · {selected.name}</h3><p>{propertyBookings.length} booking record(s) associated with this property.</p><div className="ps-table-scroll"><table className="ps-table"><thead><tr><th>Booking</th><th>Guest</th><th>Check-in</th><th>Check-out</th><th>Status</th></tr></thead><tbody>{propertyBookings.map((b,i)=><tr key={b.id||i}><td>#{b.id||"—"}</td><td>{b.guest_name||b.customer_name||b.name||"—"}</td><td>{String(b.check_in||b.checkin_date||b.check_in_date||"—").slice(0,10)}</td><td>{String(b.check_out||b.checkout_date||b.check_out_date||"—").slice(0,10)}</td><td>{b.status||"—"}</td></tr>)}</tbody></table></div>{!propertyBookings.length&&<p className="ps-muted">No booking records found for this property.</p>}</article>}
+          {section==="Pricing" && <article className="ps-panel ps-tab-panel"><h3><Tag size={19}/> Pricing & listing details</h3><div className="ps-price-big"><small>Current nightly rate</small><strong>{money(selected.nightly_rate)}</strong><span>per night</span></div><p>Update the nightly rate, capacity, description and property details using the existing secure edit form.</p><button className="ps-primary" onClick={()=>openEdit(selected)}><Pencil size={16}/> Edit pricing</button></article>}
+          {section==="Maintenance" && <article className="ps-panel ps-tab-panel"><h3><Wrench size={19}/> Property maintenance</h3><p>{propertyMaintenance.length} maintenance record(s) for {selected.name}. New tasks can be created from the main Maintenance section.</p>{propertyMaintenance.map((m,i)=><div className="ps-maintenance-row" key={m.id||i}><Wrench size={16}/><strong>{m.task||m.title||"Maintenance task"}</strong><span>{m.status||"Pending"}</span></div>)}{!propertyMaintenance.length&&<p className="ps-muted">No maintenance records for this property.</p>}</article>}
+        </>:<div className="ps-empty"><House size={36}/><h2>No properties yet</h2><p>Add your first cottage to begin managing your accommodation portfolio.</p><button className="ps-primary" onClick={openAdd}><Plus size={16}/> Add property</button></div>}</section>
       </div>
-
-      <div className="cm-section-heading">
-        <h2>Registered cottages</h2>
-
-        <button
-          className="cm-add-btn"
-          onClick={openAdd}
-          type="button"
-        >
-          <Plus size={17} />
-          Add cottage
-        </button>
-      </div>
-
-      {error && !editing && (
-        <p className="cm-error">{error}</p>
-      )}
-
-      <div className="cm-grid">
-        {cottages.map(cottage => (
-          <article className="cm-card" key={cottage.id}>
-            <div className="cm-image">
-              {cottage.photo_url ? (
-                <img
-                  src={imageUrl(cottage.photo_url)}
-                  alt={cottage.name}
-                  style={{
-                    width: "100%",
-                    height: "",
-                    objectFit: "cover"
-                  }}
-                />
-              ) : (
-                <div className="cm-no-image">
-                  No cottage photo
-                </div>
-              )}
-            </div>
-
-            <div className="cm-card-body">
-              <h3>{cottage.name}</h3>
-
-              <p>
-                {cottage.location} · {cottage.capacity} guests
-              </p>
-
-              <strong>
-                KES{" "}
-                {Number(cottage.nightly_rate || 0)
-                  .toLocaleString("en-KE")}{" "}
-                / night
-              </strong>
-
-              {!cottage.active && (
-                <p style={{ color: "#b45309" }}>
-                  Archived
-                </p>
-              )}
-
-              <div className="cm-actions">
-                <button
-                  type="button"
-                  title="Edit cottage"
-                  onClick={() => openEdit(cottage)}
-                >
-                  <Pencil size={17} />
-                </button>
-
-                <button
-                  type="button"
-                  title="Manage photographs"
-                  onClick={() => openGallery(cottage)}
-                >
-                  <Images size={17} />
-                </button>
-
-                <button
-                  type="button"
-                  title="Archive cottage"
-                  disabled={!cottage.active}
-                  onClick={() => archiveCottage(cottage)}
-                >
-                  <Trash2 size={17} />
-                </button>
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
-
-      {cottages.length === 0 && (
-        <p>No cottages registered yet.</p>
-      )}
-
+      {error && !editing && <p className="cm-error">{error}</p>}
       {/* ADD / EDIT COTTAGE */}
 
       {editing && (
@@ -631,15 +631,10 @@ export default function CottageManagement({
               >
                 {gallery.map(photo => (
                   <div key={photo.id}>
-                    <img
-                      src={imageUrl(photo.photo_url)}
+                    <CottagePhoto
+                      src={photo.photo_url}
                       alt={`${photoCottage.name} photograph`}
-                      style={{
-                        width: "100%",
-                        height: 140,
-                        objectFit: "cover",
-                        borderRadius: 10
-                      }}
+                      style={{ width: "100%", height: 140, objectFit: "cover", borderRadius: 10 }}
                     />
 
                     <div
