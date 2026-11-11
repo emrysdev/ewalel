@@ -15,7 +15,10 @@ import {
   Phone,
   CreditCard,
   Waves,
-  Instagram
+  Instagram,
+  ChevronLeft,
+  ChevronRight,
+  Images
 } from "lucide-react";
 import "./guest.css";
 
@@ -105,6 +108,102 @@ function imageUrl(value) {
   if (/^(https?:|data:|blob:)/i.test(value)) return value;
   if (value.startsWith("/uploads/")) return `${API}${value}`;
   return value.startsWith("/") ? value : `/${value}`;
+}
+
+// Guest-facing gallery. Uses public photos only; never calls admin endpoints.
+function CottageGallery({ cottage, fallback, onBook }) {
+  const [items, setItems] = useState([]);
+  const [selected, setSelected] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [notice, setNotice] = useState("");
+  const touchStart = React.useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSelected(0);
+    setNotice("");
+    const cover = imageUrl(cottage.photo_url) || fallback;
+    const embedded = Array.isArray(cottage.photos) ? cottage.photos : [];
+    const normalise = (records) => records.map((photo) => {
+      const raw = typeof photo === "string" ? photo :
+        (photo.photo_url || photo.url || photo.image_url || photo.path || "");
+      return imageUrl(raw);
+    }).filter(Boolean);
+    const unique = (values) => [...new Set(values.filter(Boolean))];
+    setItems(unique([cover, ...normalise(embedded)]));
+    // Requires a public GET /api/cottages/:id/photos endpoint on the server.
+    fetch(`${API}/api/cottages/${encodeURIComponent(cottage.id)}/photos`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Gallery endpoint unavailable");
+        const data = await res.json();
+        return Array.isArray(data) ? data :
+          Array.isArray(data.photos) ? data.photos :
+          Array.isArray(data.images) ? data.images : [];
+      })
+      .then((data) => {
+        if (!cancelled) setItems(unique([cover, ...normalise(embedded), ...normalise(data)]));
+      })
+      .catch(() => {
+        if (!cancelled && !embedded.length) setNotice("Additional photos will appear once the public gallery API is enabled.");
+      });
+    return () => { cancelled = true; };
+  }, [cottage.id, cottage.photo_url, cottage.photos, fallback]);
+
+  const previous = () => setSelected((n) => (n - 1 + items.length) % items.length);
+  const next = () => setSelected((n) => (n + 1) % items.length);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event) => {
+      if (event.key === "Escape") setOpen(false);
+      if (event.key === "ArrowLeft" && items.length > 1) previous();
+      if (event.key === "ArrowRight" && items.length > 1) next();
+    };
+    document.addEventListener("keydown", onKey);
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = oldOverflow; };
+  }, [open, items.length]);
+
+  if (!items.length) return null;
+  return (
+    <>
+      <button className="ew-cottage-gallery-trigger" type="button" onClick={() => setOpen(true)}
+        aria-label={`View photos of ${cottage.name}`}>
+        <img src={items[0]} alt={`${cottage.name} — view photo gallery`} />
+        <span className="ew-gallery-view-label"><Images size={16} /> View photos{items.length > 1 ? ` (${items.length})` : ""}</span>
+      </button>
+      {open && (
+        <div className="ew-photo-overlay" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+          <section className="ew-photo-dialog" role="dialog" aria-modal="true" aria-label={`${cottage.name} photo gallery`}>
+            <header className="ew-photo-dialog-head">
+              <div><h2>{cottage.name}</h2><p>Explore the cottage before booking</p></div>
+              <button type="button" className="ew-photo-close" onClick={() => setOpen(false)} aria-label="Close gallery"><X size={22}/></button>
+            </header>
+            <div className="ew-photo-stage" onTouchStart={(e) => { touchStart.current = e.touches[0].clientX; }}
+              onTouchEnd={(e) => { if (touchStart.current === null) return; const dx = e.changedTouches[0].clientX - touchStart.current; if (Math.abs(dx) > 45 && items.length > 1) (dx < 0 ? next : previous)(); touchStart.current = null; }}>
+              <img src={items[selected]} alt={`${cottage.name} photograph ${selected + 1} of ${items.length}`} />
+              {items.length > 1 && <>
+                <button type="button" className="ew-photo-arrow ew-photo-prev" onClick={previous} aria-label="Previous photograph"><ChevronLeft size={26}/></button>
+                <button type="button" className="ew-photo-arrow ew-photo-next" onClick={next} aria-label="Next photograph"><ChevronRight size={26}/></button>
+              </>}
+              <span className="ew-photo-count">{selected + 1} / {items.length}</span>
+            </div>
+            {items.length > 1 && <div className="ew-photo-thumbs" aria-label="Select photograph">
+              {items.map((url, i) => <button key={`${url}-${i}`} type="button" onClick={() => setSelected(i)}
+                className={i === selected ? "ew-photo-thumb active" : "ew-photo-thumb"}
+                aria-label={`Show photograph ${i + 1}`} aria-pressed={i === selected}>
+                <img src={url} alt="" loading="lazy" />
+              </button>)}
+            </div>}
+            {notice && <p className="ew-photo-notice">{notice}</p>}
+            <footer className="ew-photo-dialog-foot"><span>{money(cottage.nightly_rate)} <small>/ night</small></span>
+              <button type="button" onClick={() => { setOpen(false); onBook(); }}>Book this cottage <ArrowRight size={17}/></button>
+            </footer>
+          </section>
+        </div>
+      )}
+    </>
+  );
 }
 
 function today() {
@@ -667,11 +766,11 @@ export default function Guest() {
                 .filter((c) => Number(c.capacity) >= Number(guests))
                 .map((c, index) => (
                   <article className="ew-cottage-card" key={c.id}>
-                    <div className="ew-cottage-image">
-                      <img
-                        src={imageUrl(c.photo_url) ||
-                          photos[index % photos.length]}
-                        alt={c.name}
+                    <div className="ew-cottage-image ew-cottage-image-gallery">
+                      <CottageGallery
+                        cottage={c}
+                        fallback={photos[index % photos.length]}
+                        onBook={() => { setChosen(String(c.id)); navigate("Book a Stay"); }}
                       />
                       <span>EW A L E L STAY</span>
                     </div>

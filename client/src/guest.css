@@ -1253,3 +1253,57 @@ body {
   outline: 3px solid #d9a066;
   outline-offset: 2px;
 }
+
+/* Ewalel guest cottage photo gallery */
+.ew-cottage-image-gallery { position: relative; overflow: hidden; }
+.ew-cottage-gallery-trigger { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; position: relative; text-align: left; }
+.ew-cottage-gallery-trigger > img { width: 100%; height: 100%; display: block; object-fit: cover; transition: transform .25s ease; }
+.ew-cottage-gallery-trigger:hover > img { transform: scale(1.035); }
+.ew-gallery-view-label { position: absolute; right: 15px; bottom: 14px; display: inline-flex; align-items: center; gap: 7px; border-radius: 24px; background: rgba(255,255,255,.96); color: #103740; padding: 9px 13px; font-size: 13px; font-weight: 700; box-shadow: 0 3px 12px #0002; }
+.ew-photo-overlay { position: fixed; inset: 0; z-index: 99999; background: rgba(5,25,31,.83); display: flex; align-items: center; justify-content: center; padding: 18px; }
+.ew-photo-dialog { width: min(100%, 1040px); max-height: 95vh; overflow-y: auto; background: #fffaf5; color: #103740; border-radius: 19px; box-shadow: 0 20px 80px #0007; }
+.ew-photo-dialog-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; gap: 16px; }
+.ew-photo-dialog-head h2 { margin: 0; font-size: 25px; }
+.ew-photo-dialog-head p { margin: 4px 0 0; color: #61757a; font-size: 14px; }
+.ew-photo-close { width: 39px; height: 39px; flex-shrink: 0; display: grid; place-items: center; border: 0; border-radius: 50%; background: #eaf0ee; color: #103740; cursor: pointer; }
+.ew-photo-stage { position: relative; background: #102f35; height: min(56vh, 570px); display: flex; align-items: center; justify-content: center; touch-action: pan-y; }
+.ew-photo-stage > img { width: 100%; height: 100%; object-fit: contain; }
+.ew-photo-arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 43px; height: 43px; display: grid; place-items: center; border: 0; border-radius: 50%; background: #fffffff0; color: #103740; cursor: pointer; box-shadow: 0 3px 14px #0004; }
+.ew-photo-prev { left: 14px; } .ew-photo-next { right: 14px; }
+.ew-photo-count { position: absolute; right: 18px; bottom: 15px; border-radius: 16px; padding: 6px 12px; background: #102f35db; color: #fff; font-size: 13px; }
+.ew-photo-thumbs { display: flex; gap: 9px; overflow-x: auto; padding: 14px 20px 6px; }
+.ew-photo-thumb { flex: 0 0 104px; width: 104px; height: 72px; padding: 2px; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: transparent; cursor: pointer; }
+.ew-photo-thumb.active { border-color: #11676b; }
+.ew-photo-thumb img { width: 100%; height: 100%; border-radius: 6px; object-fit: cover; }
+.ew-photo-notice { margin: 5px 22px; color: #61757a; font-size: 13px; }
+.ew-photo-dialog-foot { display: flex; align-items: center; justify-content: space-between; padding: 17px 22px 21px; gap: 12px; font-weight: 750; }
+.ew-photo-dialog-foot small { font-weight: 400; color: #61757a; }
+.ew-photo-dialog-foot button { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 25px; padding: 12px 19px; background: #ffa0a7; color: #082b35; cursor: pointer; font-weight: 750; }
+@media(max-width:600px) { .ew-photo-overlay { padding: 6px; } .ew-photo-dialog { max-height: 98vh; } .ew-photo-stage { height: 43vh; } .ew-photo-dialog-head { padding: 14px; } .ew-photo-thumb { flex-basis: 76px; width: 76px; height: 56px; } .ew-photo-dialog-foot { padding: 13px; } }
+
+/* Ewalel guest cottage photo gallery */
+.ew-cottage-image-gallery { position: relative; overflow: hidden; }
+.ew-cottage-gallery-trigger { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; position: relative; text-align: left; }
+.ew-cottage-gallery-trigger > img { width: 100%; height: 100%; display: block; object-fit: cover; transition: transform .25s ease; }
+.ew-cottage-gallery-trigger:hover > img { transform: scale(1.035); }
+.ew-gallery-view-label { position: absolute; right: 15px; bottom: 14px; display: inline-flex; align-items: center; gap: 7px; border-radius: 24px; background: rgba(255,255,255,.96); color: #103740; padding: 9px 13px; font-size: 13px; font-weight: 700; box-shadow: 0 3px 12px #0002; }
+.ew-photo-overlay { position: fixed; inset: 0; z-index: 99999; background: rgba(5,25,31,.83); display: flex; align-items: center; justify-content: center; padding: 18px; }
+.ew-photo-dialog { width: min(100%, 1040px); max-height: 95vh; overflow-y: auto; background: #fffaf5; color: #103740; border-radius: 19px; box-shadow: 0 20px 80px #0007; }
+.ew-photo-dialog-head { display: flex; justify-content: space-between; align-items: center; padding: 18px 22px; gap: 16px; }
+.ew-photo-dialog-head h2 { margin: 0; font-size: 25px; }
+.ew-photo-dialog-head p { margin: 4px 0 0; color: #61757a; font-size: 14px; }
+.ew-photo-close { width: 39px; height: 39px; flex-shrink: 0; display: grid; place-items: center; border: 0; border-radius: 50%; background: #eaf0ee; color: #103740; cursor: pointer; }
+.ew-photo-stage { position: relative; background: #102f35; height: min(56vh, 570px); display: flex; align-items: center; justify-content: center; touch-action: pan-y; }
+.ew-photo-stage > img { width: 100%; height: 100%; object-fit: contain; }
+.ew-photo-arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 43px; height: 43px; display: grid; place-items: center; border: 0; border-radius: 50%; background: #fffffff0; color: #103740; cursor: pointer; box-shadow: 0 3px 14px #0004; }
+.ew-photo-prev { left: 14px; } .ew-photo-next { right: 14px; }
+.ew-photo-count { position: absolute; right: 18px; bottom: 15px; border-radius: 16px; padding: 6px 12px; background: #102f35db; color: #fff; font-size: 13px; }
+.ew-photo-thumbs { display: flex; gap: 9px; overflow-x: auto; padding: 14px 20px 6px; }
+.ew-photo-thumb { flex: 0 0 104px; width: 104px; height: 72px; padding: 2px; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: transparent; cursor: pointer; }
+.ew-photo-thumb.active { border-color: #11676b; }
+.ew-photo-thumb img { width: 100%; height: 100%; border-radius: 6px; object-fit: cover; }
+.ew-photo-notice { margin: 5px 22px; color: #61757a; font-size: 13px; }
+.ew-photo-dialog-foot { display: flex; align-items: center; justify-content: space-between; padding: 17px 22px 21px; gap: 12px; font-weight: 750; }
+.ew-photo-dialog-foot small { font-weight: 400; color: #61757a; }
+.ew-photo-dialog-foot button { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 25px; padding: 12px 19px; background: #ffa0a7; color: #082b35; cursor: pointer; font-weight: 750; }
+@media(max-width:600px) { .ew-photo-overlay { padding: 6px; } .ew-photo-dialog { max-height: 98vh; } .ew-photo-stage { height: 43vh; } .ew-photo-dialog-head { padding: 14px; } .ew-photo-thumb { flex-basis: 76px; width: 76px; height: 56px; } .ew-photo-dialog-foot { padding: 13px; } }
