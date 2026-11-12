@@ -3152,6 +3152,64 @@ app.post("/api/admin/customer-notes", auth, asyncRoute(async (req, res) => {
 // SERVE EWALEL REACT FRONTEND
 // ======================================================
 
+
+// ======================================================
+// CONTACT ENQUIRIES AND GUEST REVIEWS
+// Run server/schema.sql once before deploying.
+// ======================================================
+const contactLimiter = rateLimit({windowMs: 15*60*1000, limit: 5, standardHeaders:'draft-7', legacyHeaders:false});
+app.post('/api/contact-enquiries', contactLimiter, asyncRoute(async (req,res)=>{
+  const {name,email,phone='',subject='general',message}=req.body||{};
+  const n=String(name||'').trim(), e=String(email||'').trim().toLowerCase(), p=String(phone||'').trim(), m=String(message||'').trim();
+  if(n.length<2||n.length>120||!/^\S+@\S+\.\S+$/.test(e)||e.length>254||p.length>35||m.length<10||m.length>5000||!['general','reservation','special_request','feedback'].includes(subject))
+    return res.status(400).json({error:'Please provide a valid name, email, enquiry type and message (10–5000 characters).'});
+  const [result]=await pool.execute('INSERT INTO contact_enquiries (name,email,phone,subject,message) VALUES (?,?,?,?,?)',[n,e,p||null,subject,m]);
+  res.status(201).json({ok:true,id:result.insertId,message:'Enquiry received'});
+}));
+app.get('/api/admin/contact-enquiries',auth,asyncRoute(async(req,res)=>{
+  res.json(await query('SELECT * FROM contact_enquiries ORDER BY created_at DESC LIMIT 500'));
+}));
+app.patch('/api/admin/contact-enquiries/:id',auth,asyncRoute(async(req,res)=>{
+  const id=Number(req.params.id), status=req.body?.status;
+  if(!Number.isSafeInteger(id)||id<1||!['new','in_progress','resolved'].includes(status))return res.status(400).json({error:'Invalid enquiry or status'});
+  const [result]=await pool.execute('UPDATE contact_enquiries SET status=? WHERE id=?',[status,id]);
+  if(!result.affectedRows)return res.status(404).json({error:'Enquiry not found'});
+  res.json({ok:true});
+}));
+app.get('/api/admin/reviews',auth,asyncRoute(async(req,res)=>{
+  const booking=String(req.query.booking_id||'').trim();
+  if(booking && !/^[a-zA-Z0-9_-]{1,100}$/.test(booking))return res.status(400).json({error:'Invalid booking ID'});
+  res.json(await query(`SELECT * FROM guest_reviews ${booking?'WHERE booking_id=?':''} ORDER BY created_at DESC LIMIT 500`,booking?[booking]:[]));
+}));
+// Only an authenticated administrator can record a review against a verified completed stay.
+// Do not expose this endpoint to the public without guest-specific verification.
+app.post('/api/admin/reviews',auth,asyncRoute(async(req,res)=>{
+  const bookingId=String(req.body?.booking_id||'').trim();
+  const rating=Number(req.body?.rating), remarks=String(req.body?.remarks||'').trim();
+  if(!/^[a-zA-Z0-9_-]{1,100}$/.test(bookingId)||!Number.isInteger(rating)||rating<1||rating>5||remarks.length<5||remarks.length>3000)
+    return res.status(400).json({error:'Valid booking ID, 1–5 rating and remarks (5–3000 characters) required'});
+  const rows=await query(`SELECT b.id,b.name AS guest_name,c.name AS cottage_name
+    FROM bookings b LEFT JOIN cottages c ON c.id=b.unit_id
+    INNER JOIN crm_guest_stays s ON s.booking_reference=b.ref
+    WHERE b.id=? AND s.stay_status='checked_out' LIMIT 1`,[bookingId]);
+  if(!rows.length)return res.status(409).json({error:'A checked-out booking is required'});
+  const b=rows[0];
+  try {
+    const [result]=await pool.execute('INSERT INTO guest_reviews (booking_id,guest_name,cottage_name,rating,remarks,status) VALUES (?,?,?,?,?,?)',[bookingId,b.guest_name,b.cottage_name,rating,remarks,'pending']);
+    res.status(201).json({ok:true,id:result.insertId});
+  } catch(err){if(err.code==='ER_DUP_ENTRY')return res.status(409).json({error:'A review already exists for this booking'});throw err;}
+}));
+app.patch('/api/admin/reviews/:id',auth,asyncRoute(async(req,res)=>{
+  const id=Number(req.params.id),status=req.body?.status;
+  if(!Number.isSafeInteger(id)||id<1||!['pending','approved','hidden'].includes(status))return res.status(400).json({error:'Invalid review or status'});
+  const [result]=await pool.execute('UPDATE guest_reviews SET status=? WHERE id=?',[status,id]);
+  if(!result.affectedRows)return res.status(404).json({error:'Review not found'});
+  res.json({ok:true});
+}));
+app.get('/api/reviews',asyncRoute(async(req,res)=>{
+  res.json(await query("SELECT id,guest_name,cottage_name,rating,remarks,created_at FROM guest_reviews WHERE status='approved' ORDER BY created_at DESC LIMIT 30"));
+}));
+
 app.use(express.static(clientDist));
 
 app.use((req, res, next) => {

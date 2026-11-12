@@ -1,3 +1,4 @@
+import { ContactPage } from "./components/ContactReviews.jsx";
 // 
 import { Copy, Check } from "lucide-react";
 import React, { useEffect, useState } from "react";
@@ -1400,47 +1401,7 @@ export default function Guest() {
 
 
       {/* CONTACT */}
-
-      {page === "Contact" && (
-        <main className="ew-page ew-contact-page">
-          <span className="ew-kicker">GET IN TOUCH</span>
-          <h1>We'd love to hear from you.</h1>
-
-          <p>
-            Have a question about our cottages, availability
-            or your upcoming stay? Our team looks forward
-            to welcoming you.
-          </p>
-
-          <div className="ew-contact-cards">
-            <div>
-              <MapPin size={30} />
-              <h3>Our location</h3>
-              <p>Kenya</p>
-            </div>
-
-            <div>
-              <Phone size={30} />
-              <h3>Reservations</h3>
-              <p>Contact Ewalel management for assistance.</p>
-            </div>
-
-            <div>
-              <Waves size={30} />
-              <h3>Stay with us</h3>
-              <p>Relax, unwind and enjoy your getaway.</p>
-            </div>
-          </div>
-
-          <button
-            className="ew-primary-button"
-            type="button"
-            onClick={() => navigate("Book a Stay")}
-          >
-            Book a Stay <ArrowRight size={18} />
-          </button>
-        </main>
-      )}
+      {page === "Contact" && <ContactPage />}
 
       {/* FOOTER */}
 
