@@ -481,8 +481,8 @@ app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
   const cap = Number(capacity);
 
   if (
-    !name ? .trim() ||
-    !location ? .trim() ||
+    !name ?.trim() ||
+    !location ?.trim() ||
     !Number.isSafeInteger(price) ||
     price <= 0 ||
     !Number.isSafeInteger(cap) ||
@@ -737,7 +737,7 @@ app.post(
       });
     }
 
-    if (!req.files ? .length) {
+    if (!req.files ?.length) {
       return res.status(400).json({
         error: "Please select photographs"
       });
@@ -1013,7 +1013,7 @@ app.delete(
 
         await conn.execute(
           "UPDATE cottages SET photo_url=? WHERE id=?",
-          [remaining[0] ? .photo_url || "", id]
+          [remaining[0] ?.photo_url || "", id]
         );
       }
 
@@ -1061,7 +1061,7 @@ app.post("/api/admin/maintenance", auth, asyncRoute(async (req, res) => {
     notes = ""
   } = req.body || {};
 
-  if (!validId(cottage_id) || !task ? .trim() ||
+  if (!validId(cottage_id) || !task ?.trim() ||
     !validDate(scheduled_date) ||
     !Number.isFinite(Number(estimated_cost)) ||
     Number(estimated_cost) < 0) {
@@ -1211,8 +1211,8 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
     console.log("BOOKING DEBUG:", {
       cottageId,
       cottageFound: !!cottage,
-      active: cottage ? .active,
-      capacity: cottage ? .cap,
+      active: cottage ?.active,
+      capacity: cottage ?.cap,
       guests: Number(guests)
     });
     if (
@@ -1302,6 +1302,48 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
       ]
     );
 
+    // Ensure every public booking is linked to a CRM customer.
+    // Reuse a customer only when a matching contact detail exists.
+    // Keep this within the same transaction as the booking INSERT.
+    const crmEmail = email.toLowerCase();
+    const [matchedCustomers] = await conn.execute(
+      `SELECT id, phone, email FROM crm_customers
+       WHERE phone = ? OR LOWER(email) = ?
+       ORDER BY CASE WHEN phone = ? THEN 0 ELSE 1 END, id
+       LIMIT 10`,
+      [phone, crmEmail, phone]
+    );
+
+    // Do not silently join two distinct CRM profiles when the
+    // submitted phone and email identify different existing customers.
+    const phoneMatch = matchedCustomers.find(row => row.phone === phone);
+    const emailMatch = matchedCustomers.find(
+      row => String(row.email || "").toLowerCase() === crmEmail
+    );
+    if (phoneMatch && emailMatch && phoneMatch.id !== emailMatch.id) {
+      const error = new Error(
+        "Phone and email belong to different customer records. Contact Ewalel to resolve the duplicate."
+      );
+      error.status = 409;
+      throw error;
+    }
+
+    let customerId = (phoneMatch || emailMatch)?.id;
+    if (!customerId) {
+      const [createdCustomer] = await conn.execute(
+        `INSERT INTO crm_customers (full_name, phone, email)
+         VALUES (?, ?, ?)`,
+        [name, phone, crmEmail]
+      );
+      customerId = createdCustomer.insertId;
+    }
+
+    await conn.execute(
+      `INSERT INTO crm_customer_bookings (customer_id, booking_reference)
+       VALUES (?, ?)`,
+      [customerId, bookingRef]
+    );
+
     await conn.commit();
 
     res.status(201).json({
@@ -1350,7 +1392,7 @@ app.patch(
       "cancelled"
     ];
 
-    const status = req.body ? .status;
+    const status = req.body ?.status;
 
     // Validate booking status
     if (!allowedStatuses.includes(status)) {
@@ -1763,8 +1805,8 @@ app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
 // GUEST: Submit M-PESA receipt for admin review
 
 app.post("/api/mpesa/submit-receipt", asyncRoute(async (req, res) => {
-  const bookingId = String(req.body ? .booking_id || "").trim();
-  const receipt = String(req.body ? .receipt_number || "")
+  const bookingId = String(req.body ?.booking_id || "").trim();
+  const receipt = String(req.body ?.receipt_number || "")
     .trim()
     .toUpperCase();
 
@@ -1847,8 +1889,8 @@ app.post("/api/mpesa/submit-receipt", asyncRoute(async (req, res) => {
 // ADMIN: Record an M-PESA receipt for an existing booking.
 // Recording a receipt NEVER confirms a payment or adds revenue.
 app.post("/api/admin/mpesa/record", auth, asyncRoute(async (req, res) => {
-  const bookingId = String(req.body ? .booking_id || "").trim();
-  const receipt = String(req.body ? .receipt_number || "").trim().toUpperCase();
+  const bookingId = String(req.body ?.booking_id || "").trim();
+  const receipt = String(req.body ?.receipt_number || "").trim().toUpperCase();
   if (!bookingId || !/^[A-Z0-9]{8,20}$/.test(receipt)) {
     return res.status(400).json({
       error: "Select a booking and enter a valid M-PESA receipt"
@@ -1915,7 +1957,7 @@ app.post("/api/admin/mpesa/record", auth, asyncRoute(async (req, res) => {
 
 // ADMIN: Reject a receipt that cannot be verified.
 app.post("/api/admin/mpesa/reject", auth, asyncRoute(async (req, res) => {
-  const receipt = String(req.body ? .receipt_number || "").trim().toUpperCase();
+  const receipt = String(req.body ?.receipt_number || "").trim().toUpperCase();
   if (!/^[A-Z0-9]{8,20}$/.test(receipt)) {
     return res.status(400).json({
       error: "Invalid receipt"
@@ -1983,12 +2025,12 @@ app.get("/api/admin/mpesa", auth, asyncRoute(async (req, res) => {
 
 
 app.post("/api/admin/mpesa/verify", auth, asyncRoute(async (req, res) => {
-  const receipt = String(req.body ? .receipt_number || "")
+  const receipt = String(req.body ?.receipt_number || "")
     .trim()
     .toUpperCase();
 
-  const amount = Number(req.body ? .verified_amount);
-  const evidence = String(req.body ? .verification_reference || "").trim();
+  const amount = Number(req.body ?.verified_amount);
+  const evidence = String(req.body ?.verification_reference || "").trim();
 
   if (
     !/^[A-Z0-9]{8,20}$/.test(receipt) ||
@@ -2176,7 +2218,7 @@ app.get("/api/admin/finance", auth, asyncRoute(async (req, res) => {
   );
 
   res.json({
-    revenue: revenueRows[0] ? .total || 0,
+    revenue: revenueRows[0] ?.total || 0,
     outstanding,
     methods
   });
@@ -2247,7 +2289,7 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
   const start = String(data.check_in || "");
   const end = String(data.check_out || "");
   const guests = Number(data.guests);
-  const cashReceived = Number(data.cash_received ? ? 0);
+  const cashReceived = Number(data.cash_received ?? 0);
   const notes = String(data.notes || "").trim();
   const verified = data.cash_verified === true;
   const days = (Date.parse(end + "T12:00:00Z") - Date.parse(start + "T12:00:00Z")) / 86400000;
@@ -2311,7 +2353,7 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
       "SELECT id FROM crm_customers WHERE (phone<>'' AND phone=?) OR (email<>'' AND email=?) LIMIT 1",
       [phone, email]
     );
-    let customerId = existing[0] ? .id;
+    let customerId = existing[0] ?.id;
     if (!customerId) {
       const [created] = await conn.execute(
         "INSERT INTO crm_customers (full_name, phone, email) VALUES (?, ?, ?)", [name, phone, email]
@@ -2475,6 +2517,10 @@ app.use((err, req, res, next) => {
     return res.status(409).json({
       error: "Duplicate reference"
     });
+  }
+
+  if (Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
+    return res.status(err.status).json({ error: err.message });
   }
 
   res.status(500).json({
