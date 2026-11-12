@@ -429,7 +429,7 @@ function App() {
             <div className="brand">
               <div>
                 <strong>Admin</strong>
-                
+
               </div>
             </div>
 

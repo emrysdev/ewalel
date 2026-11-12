@@ -1,1177 +1,3 @@
-
-// import "dotenv/config";
-// import express from "express";
-// import cors from "cors";
-// import mysql from "mysql2/promise";
-// import bcrypt from "bcryptjs";
-// import jwt from "jsonwebtoken";
-// import multer from "multer";
-// import sharp from "sharp";
-// import fs from "node:fs/promises";
-// import path from "node:path";
-// import crypto from "node:crypto";
-// import { fileURLToPath } from "node:url";
-// import helmet from "helmet";
-// import rateLimit from "express-rate-limit";
-
-
-
-// // ======================================================
-// // EWALEL COTTAGES - COMPLETE BACKEND
-// // ======================================================
-
-
-
-
-// const app = express();
-// // Security headers
-// app.disable("x-powered-by");
-
-// app.use(
-//   helmet({
-//     contentSecurityPolicy: false
-//   })
-// );
-
-// // General API rate limiting
-// const apiLimiter = rateLimit({
-//   windowMs: 15 * 60 * 1000,
-//   limit: 150,
-//   standardHeaders: "draft-8",
-//   legacyHeaders: false,
-//   message: {
-//     error: "Too many requests. Please try again later."
-//   }
-// });
-
-// app.use("/api", apiLimiter);
-
-// // Stricter login protection
-// const loginLimiter = rateLimit({
-//   windowMs: 15 * 60 * 1000,
-//   limit: 5,
-//   standardHeaders: "draft-8",
-//   legacyHeaders: false,
-//   message: {
-//     error: "Too many login attempts. Try again in 15 minutes."
-//   }
-// });
-
-// app.use("/api/auth/login", loginLimiter);
-
-// const PORT = Number(process.env.PORT || 4000);
-// const JWT_SECRET = process.env.JWT_SECRET;
-
-// if (!JWT_SECRET || JWT_SECRET.length < 20) {
-//   throw new Error("Set JWT_SECRET (20+ characters) in server/.env");
-// }
-// // React frontend production build
-// const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-// const clientDist = path.resolve(
-//   __dirname,
-//   "../client/dist"
-// );
-
-// app.use(cors({
-//   origin: process.env.CLIENT_ORIGIN || "http://localhost:5173"
-// }));
-// app.use(express.json({ limit: "100kb" }));
-
-// // ======================================================
-// // MYSQL DATABASE
-// // ======================================================
-
-// const pool = mysql.createPool({
-//   host: process.env.DB_HOST || "127.0.0.1",
-//   port: Number(process.env.DB_PORT || 3306),
-//   user: process.env.DB_USER,
-//   password: process.env.DB_PASSWORD,
-//   database: process.env.DB_NAME || "ewalel_designed",
-//   waitForConnections: true,
-//   connectionLimit: 10,
-//   decimalNumbers: true
-// });
-
-// async function query(sql, params = []) {
-//   const [rows] = await pool.execute(sql, params);
-//   return rows;
-// }
-
-// const asyncRoute = fn => (req, res, next) =>
-//   Promise.resolve(fn(req, res, next)).catch(next);
-
-// function auth(req, res, next) {
-//   const token = (req.headers.authorization || "")
-//     .replace(/^Bearer\s+/i, "");
-
-//   try {
-//     req.admin = jwt.verify(token, JWT_SECRET);
-//     next();
-//   } catch {
-//     res.status(401).json({
-//       error: "Administrator sign-in required"
-//     });
-//   }
-// }
-
-// function positive(v) {
-//   return v !== null &&
-//     v !== "" &&
-//     Number.isFinite(Number(v)) &&
-//     Number(v) > 0;
-// }
-
-// function validId(v) {
-//   return /^[1-9]\d*$/.test(String(v || ""));
-// }
-
-// function validDate(v) {
-//   if (!/^\d{4}-\d{2}-\d{2}$/.test(v || "")) return false;
-//   const date = new Date(v + "T12:00:00Z");
-//   return !Number.isNaN(date.getTime()) &&
-//     date.toISOString().slice(0, 10) === v;
-// }
-
-// // ======================================================
-// // PHOTO STORAGE
-// // ======================================================
-
-// const serverDir = path.dirname(fileURLToPath(import.meta.url));
-// const uploadDir = path.resolve(
-//   process.env.UPLOAD_DIR || path.join(serverDir, "uploads")
-// );
-// const cottageUploadDir = path.join(uploadDir, "cottages");
-
-// await fs.mkdir(cottageUploadDir, { recursive: true });
-
-// app.use("/uploads", express.static(uploadDir, {
-//   index: false,
-//   dotfiles: "deny",
-//   setHeaders(res) {
-//     res.setHeader("X-Content-Type-Options", "nosniff");
-//     res.setHeader("Cache-Control", "public, max-age=3600");
-//   }
-// }));
-
-// const uploadPhotos = multer({
-//   storage: multer.memoryStorage(),
-//   limits: {
-//     files: 10,
-//     fileSize: 5 * 1024 * 1024
-//   },
-//   fileFilter(req, file, cb) {
-//     if (!["image/jpeg", "image/png", "image/webp"]
-//       .includes(file.mimetype)) {
-//       return cb(new Error("Only JPG, PNG and WebP images are allowed"));
-//     }
-//     cb(null, true);
-//   }
-// }).array("photos", 10);
-
-// function photoUrl(filename) {
-//   return `/uploads/cottages/${filename}`;
-// }
-
-// async function removePhotoFile(url) {
-//   const filename = path.basename(url || "");
-//   if (!/^[a-f0-9-]{36}\.webp$/.test(filename)) return;
-
-//   await fs.unlink(path.join(cottageUploadDir, filename))
-//     .catch(err => {
-//       if (err.code !== "ENOENT") throw err;
-//     });
-// }
-
-// // ======================================================
-// // HEALTH CHECK
-// // ======================================================
-
-// app.get("/api/health", asyncRoute(async (req, res) => {
-//   await query("SELECT 1");
-//   res.json({ ok: true, database: "connected" });
-// }));
-
-// // ======================================================
-// // ADMIN LOGIN
-// // ======================================================
-
-// app.post("/api/auth/login", asyncRoute(async (req, res) => {
-//   const { email, password } = req.body || {};
-
-//   const rows = await query(
-//     "SELECT * FROM admins WHERE email=?",
-//     [email || ""]
-//   );
-
-//   if (!rows.length ||
-//       !await bcrypt.compare(password || "", rows[0].password_hash)) {
-//     return res.status(401).json({ error: "Invalid credentials" });
-//   }
-
-//   const token = jwt.sign(
-//     { id: rows[0].id, email: rows[0].email },
-//     JWT_SECRET,
-//     { expiresIn: "8h" }
-//   );
-
-//   res.json({ token });
-// }));
-
-// // ======================================================
-// // PUBLIC COTTAGES
-// // ======================================================
-
-// app.get("/api/cottages", asyncRoute(async (req, res) => {
-//   res.json(await query(
-//     "SELECT * FROM cottages WHERE active=1 ORDER BY id DESC"
-//   ));
-// }));
-
-// // ======================================================
-// // ADMIN COTTAGES
-// // ======================================================
-
-// app.get("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
-//   res.json(await query("SELECT * FROM cottages ORDER BY id DESC"));
-// }));
-
-// app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
-//   const {
-//     name,
-//     location,
-//     description = "",
-//     nightly_rate,
-//     capacity = 2,
-//     photo_url = ""
-//   } = req.body || {};
-
-//   if (!name?.trim() || !location?.trim() ||
-//       !positive(nightly_rate) || !positive(capacity) ||
-//       !Number.isInteger(Number(capacity))) {
-//     return res.status(400).json({
-//       error: "Valid name, location, rate and capacity are required"
-//     });
-//   }
-
-//   const result = await query(
-//     `INSERT INTO cottages
-//      (name, location, description, nightly_rate, capacity, photo_url)
-//      VALUES (?, ?, ?, ?, ?, ?)`,
-//     [
-//       name.trim(),
-//       location.trim(),
-//       description,
-//       Number(nightly_rate),
-//       Number(capacity),
-//       photo_url
-//     ]
-//   );
-
-//   res.status(201).json({ id: result.insertId, ok: true });
-// }));
-
-// // EDIT COTTAGE
-
-// async function updateCottage(req, res) {
-//   if (!validId(req.params.id)) {
-//     return res.status(400).json({ error: "Invalid cottage ID" });
-//   }
-
-//   const allowed = [
-//     "name", "location", "description",
-//     "nightly_rate", "capacity", "photo_url", "active"
-//   ];
-
-//   const body = req.body || {};
-//   const keys = Object.keys(body).filter(k => allowed.includes(k));
-
-//   if (!keys.length) {
-//     return res.status(400).json({ error: "No editable fields" });
-//   }
-
-//   if (keys.includes("name") && !String(body.name || "").trim()) {
-//     return res.status(400).json({ error: "Name required" });
-//   }
-
-//   if (keys.includes("location") && !String(body.location || "").trim()) {
-//     return res.status(400).json({ error: "Location required" });
-//   }
-
-//   if (keys.includes("nightly_rate") && !positive(body.nightly_rate)) {
-//     return res.status(400).json({ error: "Invalid nightly rate" });
-//   }
-
-//   if (keys.includes("capacity") &&
-//       (!positive(body.capacity) ||
-//        !Number.isInteger(Number(body.capacity)))) {
-//     return res.status(400).json({ error: "Invalid capacity" });
-//   }
-
-//   if (keys.includes("active") &&
-//       ![0, 1, true, false].includes(body.active)) {
-//     return res.status(400).json({ error: "Invalid active status" });
-//   }
-
-//   const result = await query(
-//     `UPDATE cottages SET ${keys.map(k => `${k}=?`).join(", ")}
-//      WHERE id=?`,
-//     [...keys.map(k => body[k]), req.params.id]
-//   );
-
-//   if (!result.affectedRows) {
-//     return res.status(404).json({ error: "Cottage not found" });
-//   }
-
-//   res.json({ ok: true });
-// }
-
-// app.patch("/api/admin/cottages/:id", auth, asyncRoute(updateCottage));
-// app.put("/api/admin/cottages/:id", auth, asyncRoute(updateCottage));
-
-// // ARCHIVE COTTAGE
-
-// app.delete("/api/admin/cottages/:id", auth, asyncRoute(async (req, res) => {
-//   if (!validId(req.params.id)) {
-//     return res.status(400).json({ error: "Invalid cottage ID" });
-//   }
-
-//   const result = await query(
-//     "UPDATE cottages SET active=0 WHERE id=?",
-//     [req.params.id]
-//   );
-
-//   if (!result.affectedRows) {
-//     return res.status(404).json({ error: "Cottage not found" });
-//   }
-
-//   res.json({ ok: true, message: "Cottage archived" });
-// }));
-
-// // ======================================================
-// // COTTAGE PHOTOS - PUBLIC GALLERY
-// // ======================================================
-
-// app.get("/api/cottages/:id/photos", asyncRoute(async (req, res) => {
-//   if (!validId(req.params.id)) {
-//     return res.status(400).json({ error: "Invalid cottage ID" });
-//   }
-
-//   const cottages = await query(
-//     "SELECT id FROM cottages WHERE id=? AND active=1",
-//     [req.params.id]
-//   );
-
-//   if (!cottages.length) {
-//     return res.status(404).json({ error: "Cottage not found" });
-//   }
-
-//   res.json(await query(
-//     `SELECT id, cottage_id, photo_url, is_cover, created_at
-//      FROM cottage_photos WHERE cottage_id=?
-//      ORDER BY is_cover DESC, id ASC`,
-//     [req.params.id]
-//   ));
-// }));
-
-// // ======================================================
-// // ADMIN PHOTO GALLERY
-// // ======================================================
-
-// app.get(
-//   "/api/admin/cottages/:id/photos",
-//   auth,
-//   asyncRoute(async (req, res) => {
-//     if (!validId(req.params.id)) {
-//       return res.status(400).json({ error: "Invalid cottage ID" });
-//     }
-
-//     res.json(await query(
-//       `SELECT * FROM cottage_photos
-//        WHERE cottage_id=?
-//        ORDER BY is_cover DESC, id ASC`,
-//       [req.params.id]
-//     ));
-//   })
-// );
-
-// // ======================================================
-// // UPLOAD PHOTOS FROM DEVICE
-// // ======================================================
-
-// app.post(
-//   "/api/admin/cottages/:id/photos",
-//   auth,
-//   (req, res, next) => uploadPhotos(req, res, next),
-//   asyncRoute(async (req, res) => {
-//     const cottageId = req.params.id;
-
-//     if (!validId(cottageId)) {
-//       return res.status(400).json({ error: "Invalid cottage ID" });
-//     }
-
-//     const cottages = await query(
-//       "SELECT id FROM cottages WHERE id=?",
-//       [cottageId]
-//     );
-
-//     if (!cottages.length) {
-//       return res.status(404).json({ error: "Cottage not found" });
-//     }
-
-//     if (!req.files?.length) {
-//       return res.status(400).json({
-//         error: "Please select photographs"
-//       });
-//     }
-
-//     const savedFiles = [];
-//     let committed = false;
-
-//     try {
-//       for (const file of req.files) {
-//         const image = sharp(file.buffer, {
-//           limitInputPixels: 25000000
-//         });
-
-//         const metadata = await image.metadata();
-
-//         if (!["jpeg", "png", "webp"].includes(metadata.format)) {
-//           throw new Error("Invalid image format");
-//         }
-
-//         const filename = `${crypto.randomUUID()}.webp`;
-
-//         const buffer = await image
-//           .rotate()
-//           .resize({
-//             width: 1800,
-//             height: 1800,
-//             fit: "inside",
-//             withoutEnlargement: true
-//           })
-//           .webp({ quality: 85 })
-//           .toBuffer();
-
-//         await fs.writeFile(
-//           path.join(cottageUploadDir, filename),
-//           buffer,
-//           { flag: "wx" }
-//         );
-
-//         savedFiles.push(photoUrl(filename));
-//       }
-
-//       const conn = await pool.getConnection();
-
-//       try {
-//         await conn.beginTransaction();
-
-//         const [cottageRows] = await conn.execute(
-//           "SELECT photo_url FROM cottages WHERE id=? FOR UPDATE",
-//           [cottageId]
-//         );
-
-//         if (!cottageRows.length) {
-//           throw new Error("Cottage no longer exists");
-//         }
-
-//         const [existing] = await conn.execute(
-//           "SELECT id FROM cottage_photos WHERE cottage_id=? LIMIT 1",
-//           [cottageId]
-//         );
-
-//         const makeCover =
-//           existing.length === 0 && !cottageRows[0].photo_url;
-
-//         for (let i = 0; i < savedFiles.length; i++) {
-//           await conn.execute(
-//             `INSERT INTO cottage_photos
-//              (cottage_id, photo_url, is_cover)
-//              VALUES (?, ?, ?)`,
-//             [cottageId, savedFiles[i], makeCover && i === 0 ? 1 : 0]
-//           );
-//         }
-
-//         if (makeCover) {
-//           await conn.execute(
-//             "UPDATE cottages SET photo_url=? WHERE id=?",
-//             [savedFiles[0], cottageId]
-//           );
-//         }
-
-//         await conn.commit();
-//         committed = true;
-//       } catch (err) {
-//         await conn.rollback();
-//         throw err;
-//       } finally {
-//         conn.release();
-//       }
-
-//       const photos = await query(
-//         `SELECT * FROM cottage_photos WHERE cottage_id=?
-//          ORDER BY is_cover DESC, id ASC`,
-//         [cottageId]
-//       );
-
-//       res.status(201).json({
-//         ok: true,
-//         uploaded: savedFiles.length,
-//         photos
-//       });
-
-//     } catch (err) {
-//       if (!committed) {
-//         await Promise.allSettled(savedFiles.map(removePhotoFile));
-//       }
-//       throw err;
-//     }
-//   })
-// );
-
-// // ======================================================
-// // SET COVER PHOTO
-// // ======================================================
-
-// app.patch(
-//   "/api/admin/cottages/:id/photos/:photoId/cover",
-//   auth,
-//   asyncRoute(async (req, res) => {
-//     const { id, photoId } = req.params;
-
-//     if (!validId(id) || !validId(photoId)) {
-//       return res.status(400).json({ error: "Invalid ID" });
-//     }
-
-//     const conn = await pool.getConnection();
-
-//     try {
-//       await conn.beginTransaction();
-
-//       const [cottages] = await conn.execute(
-//         "SELECT id FROM cottages WHERE id=? FOR UPDATE",
-//         [id]
-//       );
-
-//       if (!cottages.length) {
-//         await conn.rollback();
-//         return res.status(404).json({ error: "Cottage not found" });
-//       }
-
-//       const [photos] = await conn.execute(
-//         `SELECT photo_url FROM cottage_photos
-//          WHERE id=? AND cottage_id=?`,
-//         [photoId, id]
-//       );
-
-//       if (!photos.length) {
-//         await conn.rollback();
-//         return res.status(404).json({ error: "Photo not found" });
-//       }
-
-//       await conn.execute(
-//         "UPDATE cottage_photos SET is_cover=0 WHERE cottage_id=?",
-//         [id]
-//       );
-
-//       await conn.execute(
-//         `UPDATE cottage_photos SET is_cover=1
-//          WHERE id=? AND cottage_id=?`,
-//         [photoId, id]
-//       );
-
-//       await conn.execute(
-//         "UPDATE cottages SET photo_url=? WHERE id=?",
-//         [photos[0].photo_url, id]
-//       );
-
-//       await conn.commit();
-
-//       res.json({
-//         ok: true,
-//         photo_url: photos[0].photo_url
-//       });
-//     } catch (err) {
-//       await conn.rollback();
-//       throw err;
-//     } finally {
-//       conn.release();
-//     }
-//   })
-// );
-
-// // ======================================================
-// // DELETE PHOTO
-// // ======================================================
-
-// app.delete(
-//   "/api/admin/cottages/:id/photos/:photoId",
-//   auth,
-//   asyncRoute(async (req, res) => {
-//     const { id, photoId } = req.params;
-
-//     if (!validId(id) || !validId(photoId)) {
-//       return res.status(400).json({ error: "Invalid ID" });
-//     }
-
-//     let deletedUrl;
-//     const conn = await pool.getConnection();
-
-//     try {
-//       await conn.beginTransaction();
-
-//       const [cottages] = await conn.execute(
-//         "SELECT photo_url FROM cottages WHERE id=? FOR UPDATE",
-//         [id]
-//       );
-
-//       if (!cottages.length) {
-//         await conn.rollback();
-//         return res.status(404).json({ error: "Cottage not found" });
-//       }
-
-//       const [photos] = await conn.execute(
-//         `SELECT * FROM cottage_photos
-//          WHERE id=? AND cottage_id=?`,
-//         [photoId, id]
-//       );
-
-//       if (!photos.length) {
-//         await conn.rollback();
-//         return res.status(404).json({ error: "Photo not found" });
-//       }
-
-//       deletedUrl = photos[0].photo_url;
-
-//       await conn.execute(
-//         "DELETE FROM cottage_photos WHERE id=? AND cottage_id=?",
-//         [photoId, id]
-//       );
-
-//       const [remaining] = await conn.execute(
-//         `SELECT id, photo_url FROM cottage_photos
-//          WHERE cottage_id=?
-//          ORDER BY is_cover DESC, id ASC LIMIT 1`,
-//         [id]
-//       );
-
-//       if (
-//         photos[0].is_cover ||
-//         cottages[0].photo_url === deletedUrl
-//       ) {
-//         await conn.execute(
-//           "UPDATE cottage_photos SET is_cover=0 WHERE cottage_id=?",
-//           [id]
-//         );
-
-//         if (remaining.length) {
-//           await conn.execute(
-//             "UPDATE cottage_photos SET is_cover=1 WHERE id=?",
-//             [remaining[0].id]
-//           );
-//         }
-
-//         await conn.execute(
-//           "UPDATE cottages SET photo_url=? WHERE id=?",
-//           [remaining[0]?.photo_url || "", id]
-//         );
-//       }
-
-//       await conn.commit();
-//     } catch (err) {
-//       await conn.rollback();
-//       throw err;
-//     } finally {
-//       conn.release();
-//     }
-
-//     try {
-//       await removePhotoFile(deletedUrl);
-//     } catch (err) {
-//       console.error("Photo file cleanup failed:", err);
-//     }
-
-//     res.json({ ok: true });
-//   })
-// );
-
-// // ======================================================
-// // MAINTENANCE
-// // ======================================================
-
-// // app.get("/api/admin/maintenance", auth, asyncRoute(async (req, res) => {
-// //   const maintenance = await query(`
-// //     SELECT
-// //       m.*,
-// //       u.name AS cottage_name
-// //     FROM maintenance m
-// //     JOIN units u ON u.id = m.cottage_id
-// //     ORDER BY m.scheduled_date DESC, m.id DESC
-// //   `);
-// app.get("/api/admin/maintenance", auth, asyncRoute(async (req, res) => {
-//   res.json(await query(`
-//     SELECT
-//       m.*,
-//       u.name AS cottage_name
-//     FROM maintenance m
-//     JOIN units u ON u.id = m.cottage_id
-//     ORDER BY m.scheduled_date DESC, m.id DESC
-//   `));
-
-//   res.json(maintenance);
-// }));
-
-// app.post("/api/admin/maintenance", auth, asyncRoute(async (req, res) => {
-//   const {
-//     cottage_id,
-//     task,
-//     scheduled_date,
-//     assigned_to = "",
-//     estimated_cost = 0,
-//     notes = ""
-//   } = req.body || {};
-
-//   if (!validId(cottage_id) || !task?.trim() ||
-//       !validDate(scheduled_date) ||
-//       !Number.isFinite(Number(estimated_cost)) ||
-//       Number(estimated_cost) < 0) {
-//     return res.status(400).json({
-//       error: "Valid cottage, task, date and cost required"
-//     });
-//   }
-
-//   const result = await query(
-//     `INSERT INTO maintenance
-//      (cottage_id, task, scheduled_date, assigned_to, estimated_cost, notes)
-//      VALUES (?, ?, ?, ?, ?, ?)`,
-//     [
-//       cottage_id,
-//       task.trim(),
-//       scheduled_date,
-//       assigned_to,
-//       Number(estimated_cost),
-//       notes
-//     ]
-//   );
-
-//   res.status(201).json({ id: result.insertId });
-// }));
-
-// app.patch(
-//   "/api/admin/maintenance/:id",
-//   auth,
-//   asyncRoute(async (req, res) => {
-//     const { status, actual_cost } = req.body || {};
-
-//     if (!["scheduled", "in_progress", "completed", "cancelled"]
-//       .includes(status)) {
-//       return res.status(400).json({ error: "Invalid status" });
-//     }
-
-//     if (actual_cost != null &&
-//         (!Number.isFinite(Number(actual_cost)) ||
-//          Number(actual_cost) < 0)) {
-//       return res.status(400).json({ error: "Invalid cost" });
-//     }
-
-//     await query(
-//       `UPDATE maintenance
-//        SET status=?,
-//            actual_cost=COALESCE(?,actual_cost),
-//            completed_at=CASE
-//              WHEN ?='completed'
-//              THEN COALESCE(completed_at,NOW())
-//              ELSE NULL
-//            END
-//        WHERE id=?`,
-//       [
-//         status,
-//         actual_cost == null ? null : Number(actual_cost),
-//         status,
-//         req.params.id
-//       ]
-//     );
-
-//     res.json({ ok: true });
-//   })
-// );
-
-// // ======================================================
-// // BOOKINGS
-// // ======================================================
-
-// app.post("/api/bookings", asyncRoute(async (req, res) => {
-//   const {
-//     cottage_id,
-//     guest_name,
-//     guest_email,
-//     guest_phone = "",
-//     check_in,
-//     check_out,
-//     guests
-//   } = req.body || {};
-
-//   if (!validId(cottage_id) ||
-//       !validDate(check_in) || !validDate(check_out)) {
-//     return res.status(400).json({ error: "Invalid booking dates" });
-//   }
-
-//   const nights = Math.round(
-//     (Date.parse(check_out + "T12:00:00Z") -
-//      Date.parse(check_in + "T12:00:00Z")) / 86400000
-//   );
-
-//   if (!guest_name?.trim() ||
-//       !guest_email?.includes("@") ||
-//       !Number.isInteger(nights) ||
-//       nights < 1 ||
-//       check_in < new Date().toISOString().slice(0, 10) ||
-//       !positive(guests) ||
-//       !Number.isInteger(Number(guests))) {
-//     return res.status(400).json({
-//       error: "Invalid booking details"
-//     });
-//   }
-
-//   const conn = await pool.getConnection();
-
-//   try {
-//     await conn.beginTransaction();
-
-//     const [cottages] = await conn.execute(
-//       "SELECT * FROM cottages WHERE id=? FOR UPDATE",
-//       [cottage_id]
-//     );
-
-//     const cottage = cottages[0];
-
-//     if (!cottage || !cottage.active ||
-//         Number(guests) > cottage.capacity) {
-//       await conn.rollback();
-//       return res.status(400).json({
-//         error: "Cottage unavailable or capacity exceeded"
-//       });
-//     }
-
-//     const [conflicts] = await conn.execute(
-//       `SELECT id FROM bookings
-//        WHERE cottage_id=?
-//        AND status NOT IN ('cancelled')
-//        AND check_in < ?
-//        AND check_out > ?
-//        LIMIT 1`,
-//       [cottage_id, check_out, check_in]
-//     );
-
-//     const [repairs] = await conn.execute(
-//       `SELECT id FROM maintenance
-//        WHERE cottage_id=?
-//        AND status IN ('scheduled','in_progress')
-//        AND scheduled_date >= ?
-//        AND scheduled_date < ?
-//        LIMIT 1`,
-//       [cottage_id, check_in, check_out]
-//     );
-
-//     if (conflicts.length || repairs.length) {
-//       await conn.rollback();
-//       return res.status(409).json({
-//         error: "Cottage unavailable for these dates"
-//       });
-//     }
-
-//     const total = nights * Number(cottage.nightly_rate);
-
-//     const [result] = await conn.execute(
-//       `INSERT INTO bookings
-//        (cottage_id, guest_name, guest_email, guest_phone,
-//         check_in, check_out, guests, total_amount)
-//        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-//       [
-//         cottage_id,
-//         guest_name.trim(),
-//         guest_email.trim(),
-//         guest_phone,
-//         check_in,
-//         check_out,
-//         Number(guests),
-//         total
-//       ]
-//     );
-
-//     await conn.commit();
-
-//     res.status(201).json({
-//       id: result.insertId,
-//       total,
-//       status: "pending"
-//     });
-//   } catch (err) {
-//     await conn.rollback();
-//     throw err;
-//   } finally {
-//     conn.release();
-//   }
-// }));
-
-// app.get("/api/admin/bookings", auth, asyncRoute(async (req, res) => {
-//   res.json(await query(`
-//     SELECT
-//       b.*,
-//       u.name AS cottage_name
-//     FROM bookings b
-//     JOIN units u ON u.id = b.cottage_id
-//     ORDER BY b.created_at DESC
-//   `));
-// }));
-
-// app.patch(
-//   "/api/admin/bookings/:id",
-//   auth,
-//   asyncRoute(async (req, res) => {
-//     if (!["pending", "confirmed", "cancelled",
-//           "checked_in", "checked_out"].includes(req.body?.status)) {
-//       return res.status(400).json({ error: "Invalid status" });
-//     }
-
-//     await query(
-//       "UPDATE bookings SET status=? WHERE id=?",
-//       [req.body.status, req.params.id]
-//     );
-
-//     res.json({ ok: true });
-//   })
-// );
-
-// // ======================================================
-// // PAYMENTS
-// // ======================================================
-
-// // app.get("/api/admin/payments", auth, asyncRoute(async (req, res) => {
-// //   res.json(await query(
-// //     `SELECT p.*, b.guest_name
-// //      FROM payments p
-// //      JOIN bookings b ON b.id=p.booking_id
-// //      ORDER BY p.id DESC`
-// //   ));
-// // }));
-// app.get("/api/admin/payments", auth, asyncRoute(async (req, res) => {
-//   const payments = await query(`
-//     SELECT
-//       id,
-//       booking_id,
-//       payment_method,
-//       amount,
-//       transaction_reference,
-//       status,
-//       paid_at,
-//       created_at
-//     FROM payments
-//     ORDER BY id DESC
-//   `);
-
-//   res.json(payments);
-// }));
-
-// app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
-//   const {
-//     booking_id,
-//     method,
-//     amount,
-//     reference,
-//     status = "pending"
-//   } = req.body || {};
-
-//   if (!validId(booking_id) ||
-//       !["mpesa", "card", "cash"].includes(method) ||
-//       !positive(amount) ||
-//       !["pending", "completed"].includes(status)) {
-//     return res.status(400).json({ error: "Invalid payment" });
-//   }
-
-//   const bookings = await query(
-//     "SELECT id FROM bookings WHERE id=?",
-//     [booking_id]
-//   );
-
-//   if (!bookings.length) {
-//     return res.status(404).json({ error: "Booking not found" });
-//   }
-
-//   if (status === "completed" && !reference?.trim()) {
-//     return res.status(400).json({
-//       error: "Completed payments require a receipt/reference"
-//     });
-//   }
-
-//   const result = await query(
-//     `INSERT INTO payments
-//      (booking_id, method, amount, reference, status, paid_at)
-//      VALUES (?, ?, ?, ?, ?, ?)`,
-//     [
-//       booking_id,
-//       method,
-//       Number(amount),
-//       reference || null,
-//       status,
-//       status === "completed" ? new Date() : null
-//     ]
-//   );
-
-//   res.status(201).json({ id: result.insertId });
-// }));
-
-// // ======================================================
-// // FINANCE
-// // ======================================================
-
-// app.get("/api/admin/finance", auth, asyncRoute(async (req, res) => {
-//   const [revenueRows, methods, bookings] = await Promise.all([
-//     query(
-//       `SELECT COALESCE(SUM(amount),0) AS total
-//        FROM payments WHERE status='completed'`
-//     ),
-//     query(
-//       `SELECT method, COALESCE(SUM(amount),0) AS amount
-//        FROM payments WHERE status='completed'
-//        GROUP BY method`
-//     ),
-//     query(
-//       `SELECT b.id, b.total_amount,
-//        COALESCE(SUM(
-//          CASE WHEN p.status='completed' THEN p.amount ELSE 0 END
-//        ),0) AS paid
-//        FROM bookings b
-//        LEFT JOIN payments p ON p.booking_id=b.id
-//        WHERE b.status!='cancelled'
-//        GROUP BY b.id,b.total_amount`
-//     )
-//   ]);
-
-//   const outstanding = bookings.reduce(
-//     (sum, b) => sum + Math.max(
-//       0,
-//       Number(b.total_amount) - Number(b.paid)
-//     ),
-//     0
-//   );
-
-//   res.json({
-//     revenue: revenueRows[0]?.total || 0,
-//     outstanding,
-//     methods
-//   });
-// }));
-
-// // ======================================================
-// // SERVE EWALEL REACT FRONTEND
-// // ======================================================
-
-// // Serve compiled React assets
-// app.use(express.static(clientDist));
-
-// // Serve React pages and support browser refreshes
-// app.use((req, res, next) => {
-//   // Keep API requests separate from frontend routes
-//   if (req.path.startsWith("/api/")) {
-//     return next();
-//   }
-
-//   // Only serve the React app for page requests
-//   if (req.method !== "GET" && req.method !== "HEAD") {
-//     return next();
-//   }
-
-//   // Missing static files should not return the React page
-//   if (path.extname(req.path)) {
-//     return next();
-//   }
-
-//   res.sendFile(path.join(clientDist, "index.html"), err => {
-//     if (err) next(err);
-//   });
-// });
-
-// // ======================================================
-// // ERROR HANDLING
-// // ======================================================
-// // ======================================================
-// // SERVE EWALEL REACT FRONTEND
-// // ======================================================
-
-// const frontendPath = path.resolve(
-//   path.dirname(fileURLToPath(import.meta.url)),
-//   "../client/dist"
-// );
-
-// // Serve React files
-// app.use(express.static(frontendPath));
-
-// // React frontend routes
-// app.use((req, res, next) => {
-//   if (
-//     req.method !== "GET" ||
-//     req.path.startsWith("/api/") ||
-//     req.path.startsWith("/uploads/") ||
-//     path.extname(req.path)
-//   ) {
-//     return next();
-//   }
-
-//   res.sendFile(
-//     path.join(frontendPath, "index.html"),
-//     err => {
-//       if (err) next(err);
-//     }
-//   );
-// });
-// app.use((req, res) => {
-//   res.status(404).json({ error: "API endpoint not found" });
-// });
-
-// app.use((err, req, res, next) => {
-//   console.error(err);
-
-//   if (err instanceof multer.MulterError) {
-//     return res.status(400).json({ error: err.message });
-//   }
-
-//   if (
-//     err.message === "Invalid image format" ||
-//     err.message?.startsWith("Only JPG") ||
-//     err.message?.includes("Input buffer contains unsupported")
-//   ) {
-//     return res.status(400).json({ error: err.message });
-//   }
-
-//   if (err.code === "ER_DUP_ENTRY") {
-//     return res.status(409).json({ error: "Duplicate reference" });
-//   }
-
-//   res.status(500).json({
-//     error: "Server error; check server logs"
-//   });
-// });
-
-// // ======================================================
-// // START SERVER
-// // ======================================================
-
-// try {
-//   await pool.query("SELECT 1");
-//   console.log("MySQL connected");
-// } catch (err) {
-//   console.error("MySQL connection failed:", err.message);
-//   process.exit(1);
-// }
-
-// app.listen(PORT, () => {
-//   console.log(`Ewalel API running on port ${PORT}`);
-// });
-
-
-
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -1183,7 +9,9 @@ import sharp from "sharp";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { fileURLToPath } from "node:url";
+import {
+  fileURLToPath
+} from "node:url";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 
@@ -1194,7 +22,8 @@ import rateLimit from "express-rate-limit";
 // ======================================================
 
 
-const __filename = fileURLToPath(import.meta.url);
+const __filename = fileURLToPath(
+  import.meta.url);
 const __dirname = path.dirname(__filename);
 
 
@@ -1208,21 +37,6 @@ app.get("/api/debug", (req, res) => {
   });
 });
 
-// const __filename = fileURLToPath(import.meta.url);
-// const __dirname = path.dirname(__filename);
-
-// Serve uploaded cottage photographs
-
-
-// const UPLOADS_DIR = process.env.RAILWAY_VOLUME_MOUNT_PATH
-//   ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, "uploads")
-//   : path.join(
-//       path.dirname(fileURLToPath(import.meta.url)),
-//       "uploads"
-//     );
-
-// // Serve uploaded photographs
-// app.use("/uploads", express.static(UPLOADS_DIR));
 
 
 
@@ -1283,7 +97,9 @@ const clientDist = path.resolve(__dirname, "../client/dist");
 app.use(cors({
   origin: process.env.CLIENT_ORIGIN || "http://localhost:5173"
 }));
-app.use(express.json({ limit: "100kb" }));
+app.use(express.json({
+  limit: "100kb"
+}));
 
 // ======================================================
 // MYSQL DATABASE
@@ -1487,19 +303,22 @@ function validDate(v) {
 // PHOTO STORAGE
 // ======================================================
 
-const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const serverDir = path.dirname(fileURLToPath(
+  import.meta.url));
 
 const uploadDir = path.resolve(
   process.env.UPLOAD_DIR ||
-  (process.env.RAILWAY_VOLUME_MOUNT_PATH
-    ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, "uploads")
-    : path.join(serverDir, "uploads"))
+  (process.env.RAILWAY_VOLUME_MOUNT_PATH ?
+    path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, "uploads") :
+    path.join(serverDir, "uploads"))
 );
 
 const cottageUploadDir = path.join(uploadDir, "cottages");
 
 
-await fs.mkdir(cottageUploadDir, { recursive: true });
+await fs.mkdir(cottageUploadDir, {
+  recursive: true
+});
 
 console.log("UPLOAD DIRECTORY:", uploadDir);
 console.log("COTTAGE DIRECTORY:", cottageUploadDir);
@@ -1571,7 +390,10 @@ async function removePhotoFile(url) {
 
 app.get("/api/health", asyncRoute(async (req, res) => {
   await query("SELECT 1");
-  res.json({ ok: true, database: "connected" });
+  res.json({
+    ok: true,
+    database: "connected"
+  });
 }));
 
 // ======================================================
@@ -1579,7 +401,10 @@ app.get("/api/health", asyncRoute(async (req, res) => {
 // ======================================================
 
 app.post("/api/auth/login", asyncRoute(async (req, res) => {
-  const { email, password } = req.body || {};
+  const {
+    email,
+    password
+  } = req.body || {};
 
   const rows = await query(
     "SELECT * FROM admins WHERE email=?",
@@ -1587,17 +412,24 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
   );
 
   if (!rows.length ||
-      !await bcrypt.compare(password || "", rows[0].password_hash)) {
-    return res.status(401).json({ error: "Invalid credentials" });
+    !await bcrypt.compare(password || "", rows[0].password_hash)) {
+    return res.status(401).json({
+      error: "Invalid credentials"
+    });
   }
 
-  const token = jwt.sign(
-    { id: rows[0].id, email: rows[0].email },
-    JWT_SECRET,
-    { expiresIn: "8h" }
+  const token = jwt.sign({
+      id: rows[0].id,
+      email: rows[0].email
+    },
+    JWT_SECRET, {
+      expiresIn: "8h"
+    }
   );
 
-  res.json({ token });
+  res.json({
+    token
+  });
 }));
 
 // ======================================================
@@ -1635,51 +467,6 @@ app.get("/api/cottages", asyncRoute(async (req, res) => {
 
 
 
-// 4. Other API routes go here
-
-// 5. 404 handler — LAST
-// app.use((req, res) => {
-//   res.status(404).json({
-//     error: "API endpoint not found"
-//   });
-// });
-
-
-// app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
-//   const {
-//     name,
-//     location,
-//     description = "",
-//     nightly_rate,
-//     capacity = 2,
-//     photo_url = ""
-//   } = req.body || {};
-
-//   if (!name?.trim() || !location?.trim() ||
-//       !positive(nightly_rate) || !positive(capacity) ||
-//       !Number.isInteger(Number(capacity))) {
-//     return res.status(400).json({
-//       error: "Valid name, location, rate and capacity are required"
-//     });
-//   }
-
-//   const result = await query(
-//     `INSERT INTO cottages
-//      (name, location, description, nightly_rate, capacity, photo_url)
-//      VALUES (?, ?, ?, ?, ?, ?)`,
-//     [
-//       name.trim(),
-//       location.trim(),
-//       description,
-//       Number(nightly_rate),
-//       Number(capacity),
-//       photo_url
-//     ]
-//   );
-
-//   res.status(201).json({ id: result.insertId, ok: true });
-// }));
-
 app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
   const {
     name,
@@ -1694,8 +481,8 @@ app.post("/api/admin/cottages", auth, asyncRoute(async (req, res) => {
   const cap = Number(capacity);
 
   if (
-    !name?.trim() ||
-    !location?.trim() ||
+    !name ? .trim() ||
+    !location ? .trim() ||
     !Number.isSafeInteger(price) ||
     price <= 0 ||
     !Number.isSafeInteger(cap) ||
@@ -1770,36 +557,36 @@ async function updateCottage(req, res) {
   }
 
   if (keys.includes("name") &&
-      !String(body.name || "").trim()) {
+    !String(body.name || "").trim()) {
     return res.status(400).json({
       error: "Name required"
     });
   }
 
   if (keys.includes("location") &&
-      !String(body.location || "").trim()) {
+    !String(body.location || "").trim()) {
     return res.status(400).json({
       error: "Location required"
     });
   }
 
   if (keys.includes("nightly_rate") &&
-      !positive(body.nightly_rate)) {
+    !positive(body.nightly_rate)) {
     return res.status(400).json({
       error: "Invalid nightly rate"
     });
   }
 
   if (keys.includes("capacity") &&
-      (!positive(body.capacity) ||
-       !Number.isInteger(Number(body.capacity)))) {
+    (!positive(body.capacity) ||
+      !Number.isInteger(Number(body.capacity)))) {
     return res.status(400).json({
       error: "Invalid capacity"
     });
   }
 
   if (keys.includes("active") &&
-      ![0, 1, true, false].includes(body.active)) {
+    ![0, 1, true, false].includes(body.active)) {
     return res.status(400).json({
       error: "Invalid active status"
     });
@@ -1811,7 +598,7 @@ async function updateCottage(req, res) {
 
   const values = keys.map(key => {
     if (key === "nightly_rate" ||
-        key === "capacity") {
+      key === "capacity") {
       return Number(body[key]);
     }
 
@@ -1847,7 +634,9 @@ app.put("/api/admin/cottages/:id", auth, asyncRoute(updateCottage));
 
 app.delete("/api/admin/cottages/:id", auth, asyncRoute(async (req, res) => {
   if (!validId(req.params.id)) {
-    return res.status(400).json({ error: "Invalid cottage ID" });
+    return res.status(400).json({
+      error: "Invalid cottage ID"
+    });
   }
 
   const result = await query(
@@ -1856,10 +645,15 @@ app.delete("/api/admin/cottages/:id", auth, asyncRoute(async (req, res) => {
   );
 
   if (!result.affectedRows) {
-    return res.status(404).json({ error: "Cottage not found" });
+    return res.status(404).json({
+      error: "Cottage not found"
+    });
   }
 
-  res.json({ ok: true, message: "Cottage archived" });
+  res.json({
+    ok: true,
+    message: "Cottage archived"
+  });
 }));
 
 // ======================================================
@@ -1868,7 +662,9 @@ app.delete("/api/admin/cottages/:id", auth, asyncRoute(async (req, res) => {
 
 app.get("/api/cottages/:id/photos", asyncRoute(async (req, res) => {
   if (!validId(req.params.id)) {
-    return res.status(400).json({ error: "Invalid cottage ID" });
+    return res.status(400).json({
+      error: "Invalid cottage ID"
+    });
   }
 
   const cottages = await query(
@@ -1877,7 +673,9 @@ app.get("/api/cottages/:id/photos", asyncRoute(async (req, res) => {
   );
 
   if (!cottages.length) {
-    return res.status(404).json({ error: "Cottage not found" });
+    return res.status(404).json({
+      error: "Cottage not found"
+    });
   }
 
   res.json(await query(
@@ -1897,7 +695,9 @@ app.get(
   auth,
   asyncRoute(async (req, res) => {
     if (!validId(req.params.id)) {
-      return res.status(400).json({ error: "Invalid cottage ID" });
+      return res.status(400).json({
+        error: "Invalid cottage ID"
+      });
     }
 
     res.json(await query(
@@ -1921,7 +721,9 @@ app.post(
     const cottageId = req.params.id;
 
     if (!validId(cottageId)) {
-      return res.status(400).json({ error: "Invalid cottage ID" });
+      return res.status(400).json({
+        error: "Invalid cottage ID"
+      });
     }
 
     const cottages = await query(
@@ -1930,10 +732,12 @@ app.post(
     );
 
     if (!cottages.length) {
-      return res.status(404).json({ error: "Cottage not found" });
+      return res.status(404).json({
+        error: "Cottage not found"
+      });
     }
 
-    if (!req.files?.length) {
+    if (!req.files ? .length) {
       return res.status(400).json({
         error: "Please select photographs"
       });
@@ -1964,13 +768,16 @@ app.post(
             fit: "inside",
             withoutEnlargement: true
           })
-          .webp({ quality: 85 })
+          .webp({
+            quality: 85
+          })
           .toBuffer();
 
         await fs.writeFile(
           path.join(cottageUploadDir, filename),
-          buffer,
-          { flag: "wx" }
+          buffer, {
+            flag: "wx"
+          }
         );
 
         savedFiles.push(photoUrl(filename));
@@ -2052,10 +859,15 @@ app.patch(
   "/api/admin/cottages/:id/photos/:photoId/cover",
   auth,
   asyncRoute(async (req, res) => {
-    const { id, photoId } = req.params;
+    const {
+      id,
+      photoId
+    } = req.params;
 
     if (!validId(id) || !validId(photoId)) {
-      return res.status(400).json({ error: "Invalid ID" });
+      return res.status(400).json({
+        error: "Invalid ID"
+      });
     }
 
     const conn = await pool.getConnection();
@@ -2070,7 +882,9 @@ app.patch(
 
       if (!cottages.length) {
         await conn.rollback();
-        return res.status(404).json({ error: "Cottage not found" });
+        return res.status(404).json({
+          error: "Cottage not found"
+        });
       }
 
       const [photos] = await conn.execute(
@@ -2081,7 +895,9 @@ app.patch(
 
       if (!photos.length) {
         await conn.rollback();
-        return res.status(404).json({ error: "Photo not found" });
+        return res.status(404).json({
+          error: "Photo not found"
+        });
       }
 
       await conn.execute(
@@ -2123,10 +939,15 @@ app.delete(
   "/api/admin/cottages/:id/photos/:photoId",
   auth,
   asyncRoute(async (req, res) => {
-    const { id, photoId } = req.params;
+    const {
+      id,
+      photoId
+    } = req.params;
 
     if (!validId(id) || !validId(photoId)) {
-      return res.status(400).json({ error: "Invalid ID" });
+      return res.status(400).json({
+        error: "Invalid ID"
+      });
     }
 
     let deletedUrl;
@@ -2142,7 +963,9 @@ app.delete(
 
       if (!cottages.length) {
         await conn.rollback();
-        return res.status(404).json({ error: "Cottage not found" });
+        return res.status(404).json({
+          error: "Cottage not found"
+        });
       }
 
       const [photos] = await conn.execute(
@@ -2153,7 +976,9 @@ app.delete(
 
       if (!photos.length) {
         await conn.rollback();
-        return res.status(404).json({ error: "Photo not found" });
+        return res.status(404).json({
+          error: "Photo not found"
+        });
       }
 
       deletedUrl = photos[0].photo_url;
@@ -2188,7 +1013,7 @@ app.delete(
 
         await conn.execute(
           "UPDATE cottages SET photo_url=? WHERE id=?",
-          [remaining[0]?.photo_url || "", id]
+          [remaining[0] ? .photo_url || "", id]
         );
       }
 
@@ -2206,7 +1031,9 @@ app.delete(
       console.error("Photo file cleanup failed:", err);
     }
 
-    res.json({ ok: true });
+    res.json({
+      ok: true
+    });
   })
 );
 
@@ -2234,10 +1061,10 @@ app.post("/api/admin/maintenance", auth, asyncRoute(async (req, res) => {
     notes = ""
   } = req.body || {};
 
-  if (!validId(cottage_id) || !task?.trim() ||
-      !validDate(scheduled_date) ||
-      !Number.isFinite(Number(estimated_cost)) ||
-      Number(estimated_cost) < 0) {
+  if (!validId(cottage_id) || !task ? .trim() ||
+    !validDate(scheduled_date) ||
+    !Number.isFinite(Number(estimated_cost)) ||
+    Number(estimated_cost) < 0) {
     return res.status(400).json({
       error: "Valid cottage, task, date and cost required"
     });
@@ -2257,24 +1084,33 @@ app.post("/api/admin/maintenance", auth, asyncRoute(async (req, res) => {
     ]
   );
 
-  res.status(201).json({ id: result.insertId });
+  res.status(201).json({
+    id: result.insertId
+  });
 }));
 
 app.patch(
   "/api/admin/maintenance/:id",
   auth,
   asyncRoute(async (req, res) => {
-    const { status, actual_cost } = req.body || {};
+    const {
+      status,
+      actual_cost
+    } = req.body || {};
 
     if (!["scheduled", "in_progress", "completed", "cancelled"]
       .includes(status)) {
-      return res.status(400).json({ error: "Invalid status" });
+      return res.status(400).json({
+        error: "Invalid status"
+      });
     }
 
     if (actual_cost != null &&
-        (!Number.isFinite(Number(actual_cost)) ||
-         Number(actual_cost) < 0)) {
-      return res.status(400).json({ error: "Invalid cost" });
+      (!Number.isFinite(Number(actual_cost)) ||
+        Number(actual_cost) < 0)) {
+      return res.status(400).json({
+        error: "Invalid cost"
+      });
     }
 
     await query(
@@ -2295,7 +1131,9 @@ app.patch(
       ]
     );
 
-    res.json({ ok: true });
+    res.json({
+      ok: true
+    });
   })
 );
 
@@ -2370,13 +1208,13 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
 
     const cottage = cottages[0];
 
-  console.log("BOOKING DEBUG:", {
-  cottageId,
-  cottageFound: !!cottage,
-  active: cottage?.active,
-  capacity: cottage?.cap,
-  guests: Number(guests)
-});
+    console.log("BOOKING DEBUG:", {
+      cottageId,
+      cottageFound: !!cottage,
+      active: cottage ? .active,
+      capacity: cottage ? .cap,
+      guests: Number(guests)
+    });
     if (
       !cottage ||
       !cottage.active ||
@@ -2405,6 +1243,18 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
 
       return res.status(409).json({
         error: "Cottage is already booked for these dates"
+      });
+    }
+    const [maintenanceConflict] = await conn.execute(
+      `SELECT id FROM maintenance WHERE cottage_id=?
+       AND status IN ('scheduled','in_progress')
+       AND scheduled_date>=? AND scheduled_date<? LIMIT 1`,
+      [cottageId, check_in, check_out]
+    );
+    if (maintenanceConflict.length) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: "Cottage unavailable due to scheduled maintenance"
       });
     }
 
@@ -2500,7 +1350,7 @@ app.patch(
       "cancelled"
     ];
 
-    const status = req.body?.status;
+    const status = req.body ? .status;
 
     // Validate booking status
     if (!allowedStatuses.includes(status)) {
@@ -2577,61 +1427,6 @@ app.get("/api/admin/stays", auth, asyncRoute(async (req, res) => {
 
   res.json(rows);
 }));
-
-
-// app.post("/api/admin/bookings/:id/:action", auth, asyncRoute(async (req, res) => {
-//   const bookingId = String(req.params.id || "");
-//   const action = String(req.params.action || "");
-//   if (!validId(bookingId) || !["check-in", "check-out"].includes(action)) {
-//     return res.status(400).json({ error: "Invalid booking or action" });
-//   }
-//   const from = action === "check-in" ? "confirmed" : "checked_in";
-//   const to = action === "check-in" ? "checked_in" : "checked_out";
-//   const event = action === "check-in" ? "check_in" : "check_out";
-//   const conn = await pool.getConnection();
-//   try {
-//     await conn.beginTransaction();
-//     const [bookings] = await conn.execute(
-//       "SELECT id, status, total, check_in, check_out FROM bookings WHERE id=? FOR UPDATE",
-//       [bookingId]
-//     );
-//     const booking = bookings[0];
-//     if (!booking) {
-//       await conn.rollback();
-//       return res.status(404).json({ error: "Booking not found" });
-//     }
-//     if (booking.status !== from) {
-//       await conn.rollback();
-//       return res.status(409).json({ error: `Only ${from} bookings can be ${action === "check-in" ? "checked in" : "checked out"}` });
-//     }
-//     // Check that the booking is fully paid using completed payment records.
-//     const [paidRows] = await conn.execute(
-//       "SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE booking_id=? AND status='completed'",
-//       [bookingId]
-//     );
-//     const due = Math.max(0, Number(booking.total || 0) - Number(paidRows[0]?.paid || 0));
-//     if (due > 0.005) {
-//       await conn.rollback();
-//       return res.status(409).json({ error: `Cannot ${action}: outstanding balance KES ${due.toFixed(2)}. Verify payment first.` });
-//     }
-//     const [updated] = await conn.execute(
-//       "UPDATE bookings SET status=? WHERE id=? AND status=?",
-//       [to, bookingId, from]
-//     );
-//     if (updated.affectedRows !== 1) throw new Error("Booking status changed concurrently");
-//     await conn.execute(
-//       "INSERT INTO booking_stay_events (booking_id,event_type) VALUES (?,?)",
-//       [bookingId, event]
-//     );
-//     await conn.commit();
-//     res.json({ ok:true, booking_id:bookingId, status:to });
-//   } catch (error) {
-//     await conn.rollback();
-//     throw error;
-//   } finally { conn.release(); }
-// }));
-
-
 
 app.post(
   "/api/admin/bookings/:id/:action",
@@ -2915,7 +1710,9 @@ app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
     !positive(amount) ||
     !["pending", "completed"].includes(status)
   ) {
-    return res.status(400).json({ error: "Invalid payment details" });
+    return res.status(400).json({
+      error: "Invalid payment details"
+    });
   }
 
   const bookings = await query(
@@ -2924,7 +1721,9 @@ app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
   );
 
   if (!bookings.length) {
-    return res.status(404).json({ error: "Booking not found" });
+    return res.status(404).json({
+      error: "Booking not found"
+    });
   }
 
   if (status === "completed" && !String(reference || "").trim()) {
@@ -2964,8 +1763,8 @@ app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
 // GUEST: Submit M-PESA receipt for admin review
 
 app.post("/api/mpesa/submit-receipt", asyncRoute(async (req, res) => {
-  const bookingId = String(req.body?.booking_id || "").trim();
-  const receipt = String(req.body?.receipt_number || "")
+  const bookingId = String(req.body ? .booking_id || "").trim();
+  const receipt = String(req.body ? .receipt_number || "")
     .trim()
     .toUpperCase();
 
@@ -3048,10 +1847,12 @@ app.post("/api/mpesa/submit-receipt", asyncRoute(async (req, res) => {
 // ADMIN: Record an M-PESA receipt for an existing booking.
 // Recording a receipt NEVER confirms a payment or adds revenue.
 app.post("/api/admin/mpesa/record", auth, asyncRoute(async (req, res) => {
-  const bookingId = String(req.body?.booking_id || "").trim();
-  const receipt = String(req.body?.receipt_number || "").trim().toUpperCase();
+  const bookingId = String(req.body ? .booking_id || "").trim();
+  const receipt = String(req.body ? .receipt_number || "").trim().toUpperCase();
   if (!bookingId || !/^[A-Z0-9]{8,20}$/.test(receipt)) {
-    return res.status(400).json({ error: "Select a booking and enter a valid M-PESA receipt" });
+    return res.status(400).json({
+      error: "Select a booking and enter a valid M-PESA receipt"
+    });
   }
 
   const conn = await pool.getConnection();
@@ -3062,11 +1863,15 @@ app.post("/api/admin/mpesa/record", auth, asyncRoute(async (req, res) => {
     );
     if (!bookings.length) {
       await conn.rollback();
-      return res.status(404).json({ error: "Booking not found" });
+      return res.status(404).json({
+        error: "Booking not found"
+      });
     }
     if (!["awaiting_payment", "payment_submitted"].includes(bookings[0].status)) {
       await conn.rollback();
-      return res.status(409).json({ error: "Booking is not awaiting payment" });
+      return res.status(409).json({
+        error: "Booking is not awaiting payment"
+      });
     }
     const [existing] = await conn.execute(
       "SELECT trans_id FROM mpesa_payments WHERE receipt_number=? LIMIT 1", [receipt]
@@ -3076,7 +1881,9 @@ app.post("/api/admin/mpesa/record", auth, asyncRoute(async (req, res) => {
     );
     if (existing.length || recorded.length) {
       await conn.rollback();
-      return res.status(409).json({ error: "Receipt already recorded" });
+      return res.status(409).json({
+        error: "Receipt already recorded"
+      });
     }
     const transactionId = `ADM-${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
     await conn.execute(
@@ -3091,8 +1898,13 @@ app.post("/api/admin/mpesa/record", auth, asyncRoute(async (req, res) => {
        WHERE id=? AND status='awaiting_payment'`, [bookingId]
     );
     await conn.commit();
-    res.status(201).json({ ok: true, booking_id: bookingId, receipt_number: receipt,
-      status: "pending", message: "Receipt recorded. Verify it against Safaricom before confirming payment." });
+    res.status(201).json({
+      ok: true,
+      booking_id: bookingId,
+      receipt_number: receipt,
+      status: "pending",
+      message: "Receipt recorded. Verify it against Safaricom before confirming payment."
+    });
   } catch (error) {
     await conn.rollback();
     throw error;
@@ -3103,9 +1915,11 @@ app.post("/api/admin/mpesa/record", auth, asyncRoute(async (req, res) => {
 
 // ADMIN: Reject a receipt that cannot be verified.
 app.post("/api/admin/mpesa/reject", auth, asyncRoute(async (req, res) => {
-  const receipt = String(req.body?.receipt_number || "").trim().toUpperCase();
+  const receipt = String(req.body ? .receipt_number || "").trim().toUpperCase();
   if (!/^[A-Z0-9]{8,20}$/.test(receipt)) {
-    return res.status(400).json({ error: "Invalid receipt" });
+    return res.status(400).json({
+      error: "Invalid receipt"
+    });
   }
   const conn = await pool.getConnection();
   try {
@@ -3115,7 +1929,9 @@ app.post("/api/admin/mpesa/reject", auth, asyncRoute(async (req, res) => {
     );
     if (rows.length !== 1 || rows[0].status !== "pending") {
       await conn.rollback();
-      return res.status(409).json({ error: "Receipt not found or already reviewed" });
+      return res.status(409).json({
+        error: "Receipt not found or already reviewed"
+      });
     }
     await conn.execute(
       "UPDATE mpesa_payments SET status='rejected', reviewed_at=NOW() WHERE receipt_number=?", [receipt]
@@ -3129,7 +1945,10 @@ app.post("/api/admin/mpesa/reject", auth, asyncRoute(async (req, res) => {
       );
     }
     await conn.commit();
-    res.json({ ok: true, message: "Receipt rejected; no revenue recorded" });
+    res.json({
+      ok: true,
+      message: "Receipt rejected; no revenue recorded"
+    });
   } catch (error) {
     await conn.rollback();
     throw error;
@@ -3138,7 +1957,7 @@ app.post("/api/admin/mpesa/reject", auth, asyncRoute(async (req, res) => {
   }
 }));
 
- // ADMIN: View M-PESA receipts awaiting verification
+// ADMIN: View M-PESA receipts awaiting verification
 app.get("/api/admin/mpesa", auth, asyncRoute(async (req, res) => {
   const receipts = await query(`
     SELECT
@@ -3164,12 +1983,12 @@ app.get("/api/admin/mpesa", auth, asyncRoute(async (req, res) => {
 
 
 app.post("/api/admin/mpesa/verify", auth, asyncRoute(async (req, res) => {
-  const receipt = String(req.body?.receipt_number || "")
+  const receipt = String(req.body ? .receipt_number || "")
     .trim()
     .toUpperCase();
 
-  const amount = Number(req.body?.verified_amount);
-  const evidence = String(req.body?.verification_reference || "").trim();
+  const amount = Number(req.body ? .verified_amount);
+  const evidence = String(req.body ? .verification_reference || "").trim();
 
   if (
     !/^[A-Z0-9]{8,20}$/.test(receipt) ||
@@ -3357,13 +2176,66 @@ app.get("/api/admin/finance", auth, asyncRoute(async (req, res) => {
   );
 
   res.json({
-    revenue: revenueRows[0]?.total || 0,
+    revenue: revenueRows[0] ? .total || 0,
     outstanding,
     methods
   });
 }));
 
 
+
+// Calendar availability: reservations and active maintenance blocks.
+// Dates use [check_in, check_out): departure day is available for a new arrival.
+async function cottageAvailability(req, res) {
+  const cottageId = String(req.params.id || "").trim();
+  if (!validCottageId(cottageId)) {
+    return res.status(400).json({
+      error: "Invalid cottage ID"
+    });
+  }
+  const cottages = await query("SELECT id, name, cap, active FROM cottages WHERE id=?", [cottageId]);
+  if (!cottages.length || !Number(cottages[0].active)) {
+    return res.status(404).json({
+      error: "Cottage not found or inactive"
+    });
+  }
+  const bookings = await query(
+    `SELECT id, DATE_FORMAT(check_in,'%Y-%m-%d') AS start,
+            DATE_FORMAT(check_out,'%Y-%m-%d') AS end
+     FROM bookings WHERE unit_id=? AND status<>'cancelled'
+     ORDER BY check_in`, [cottageId]
+  );
+  const maintenance = await query(
+    `SELECT id, DATE_FORMAT(scheduled_date,'%Y-%m-%d') AS start,
+            DATE_FORMAT(DATE_ADD(scheduled_date, INTERVAL 1 DAY),'%Y-%m-%d') AS end
+     FROM maintenance WHERE cottage_id=?
+       AND status IN ('scheduled','in_progress')
+     ORDER BY scheduled_date`, [cottageId]
+  );
+  const blocked = [
+    ...bookings.map(b => ({
+      type: "booking",
+      start: b.start,
+      end: b.end
+    })),
+    ...maintenance.map(m => ({
+      type: "maintenance",
+      start: m.start,
+      end: m.end
+    }))
+  ];
+  res.json({
+    cottage_id: cottageId,
+    capacity: Number(cottages[0].cap),
+    bookings,
+    maintenance,
+    blocked,
+    booked_dates: bookings,
+    maintenance_dates: maintenance
+  });
+}
+app.get("/api/admin/cottages/:id/availability", auth, asyncRoute(cottageAvailability));
+app.get("/api/cottages/:id/availability", asyncRoute(cottageAvailability));
 
 // ADMIN WALK-IN REGISTRATION: atomic customer + booking + verified cash receipt.
 app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
@@ -3375,17 +2247,19 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
   const start = String(data.check_in || "");
   const end = String(data.check_out || "");
   const guests = Number(data.guests);
-  const cashReceived = Number(data.cash_received ?? 0);
+  const cashReceived = Number(data.cash_received ? ? 0);
   const notes = String(data.notes || "").trim();
   const verified = data.cash_verified === true;
   const days = (Date.parse(end + "T12:00:00Z") - Date.parse(start + "T12:00:00Z")) / 86400000;
   if (!name || name.length > 80 || !phone || phone.length > 20 ||
-      (email && (email.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) ||
-      !validCottageId(cottageId) || !validDate(start) || !validDate(end) ||
-      !Number.isInteger(days) || days < 1 || !Number.isInteger(guests) || guests < 1 ||
-      !Number.isSafeInteger(cashReceived) || cashReceived < 0 ||
-      (cashReceived > 0 && !verified) || notes.length > 300) {
-    return res.status(400).json({ error: "Invalid guest, dates or cash details. Confirm cash receipt before recording it." });
+    (email && (email.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) ||
+    !validCottageId(cottageId) || !validDate(start) || !validDate(end) ||
+    !Number.isInteger(days) || days < 1 || !Number.isInteger(guests) || guests < 1 ||
+    !Number.isSafeInteger(cashReceived) || cashReceived < 0 ||
+    (cashReceived > 0 && !verified) || notes.length > 300) {
+    return res.status(400).json({
+      error: "Invalid guest, dates or cash details. Confirm cash receipt before recording it."
+    });
   }
   const conn = await pool.getConnection();
   try {
@@ -3395,7 +2269,9 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
     const cottage = cottages[0];
     if (!cottage || !Number(cottage.active) || guests > Number(cottage.cap)) {
       await conn.rollback();
-      return res.status(400).json({ error: "Cottage inactive, missing or capacity exceeded" });
+      return res.status(400).json({
+        error: "Cottage inactive, missing or capacity exceeded"
+      });
     }
     const [overlap] = await conn.execute(
       "SELECT id FROM bookings WHERE unit_id=? AND status<>'cancelled' AND check_in<? AND check_out>? LIMIT 1",
@@ -3403,12 +2279,28 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
     );
     if (overlap.length) {
       await conn.rollback();
-      return res.status(409).json({ error: "Cottage already booked for these dates" });
+      return res.status(409).json({
+        error: "Cottage already booked for these dates"
+      });
+    }
+    const [maintenanceConflict] = await conn.execute(
+      `SELECT id FROM maintenance WHERE cottage_id=?
+       AND status IN ('scheduled','in_progress')
+       AND scheduled_date>=? AND scheduled_date<? LIMIT 1`,
+      [cottageId, start, end]
+    );
+    if (maintenanceConflict.length) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: "Cottage unavailable due to scheduled maintenance"
+      });
     }
     const total = days * Number(cottage.price);
     if (!Number.isSafeInteger(total) || total <= 0 || cashReceived > total) {
       await conn.rollback();
-      return res.status(400).json({ error: "Invalid price or cash amount exceeds booking total" });
+      return res.status(400).json({
+        error: "Invalid price or cash amount exceeds booking total"
+      });
     }
     const bookingId = "B" + crypto.randomBytes(8).toString("hex");
     const bookingRef = "EW" + crypto.randomBytes(5).toString("hex").toUpperCase();
@@ -3419,10 +2311,10 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
       "SELECT id FROM crm_customers WHERE (phone<>'' AND phone=?) OR (email<>'' AND email=?) LIMIT 1",
       [phone, email]
     );
-    let customerId = existing[0]?.id;
+    let customerId = existing[0] ? .id;
     if (!customerId) {
       const [created] = await conn.execute(
-        "INSERT INTO crm_customers (name,phone,email) VALUES (?,?,?)", [name,phone,email]
+        "INSERT INTO crm_customers (full_name, phone, email) VALUES (?, ?, ?)", [name, phone, email]
       );
       customerId = created.insertId;
     }
@@ -3430,7 +2322,14 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
       `INSERT INTO bookings
        (id,ref,unit_id,check_in,check_out,nights,guests,name,phone,email,notes,total,deposit,status,source,created_at,confirmed_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [bookingId,bookingRef,cottageId,start,end,days,guests,name,phone,email,notes,total,0,status,"admin",now,status==="confirmed"?now:null]
+      [bookingId, bookingRef, cottageId, start, end, days, guests, name, phone, email, notes, total, 0, status, "admin", now, status === "confirmed" ? now : null]
+    );
+    // Link the booking to the CRM customer
+    await conn.execute(
+      `INSERT INTO crm_customer_bookings
+   (customer_id, booking_reference)
+   VALUES (?, ?)`,
+      [customerId, bookingRef]
     );
     let receipt = null;
     if (cashReceived > 0) {
@@ -3438,14 +2337,25 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
       await conn.execute(
         `INSERT INTO payments (booking_id,payment_method,amount,transaction_reference,status,paid_at)
          VALUES (?,'cash',?,?,'completed',NOW())`,
-        [bookingId,cashReceived,receipt]
+        [bookingId, cashReceived, receipt]
       );
     }
     await conn.commit();
-    res.status(201).json({ ok:true, customer_id:customerId, booking_id:bookingId,
-      booking_ref:bookingRef, cottage_name:cottage.name, check_in:start, check_out:end,
-      nights:days, total, cash_received:cashReceived, outstanding:total-cashReceived,
-      status, receipt });
+    res.status(201).json({
+      ok: true,
+      customer_id: customerId,
+      booking_id: bookingId,
+      booking_ref: bookingRef,
+      cottage_name: cottage.name,
+      check_in: start,
+      check_out: end,
+      nights: days,
+      total,
+      cash_received: cashReceived,
+      outstanding: total - cashReceived,
+      status,
+      receipt
+    });
   } catch (error) {
     await conn.rollback();
     throw error;
@@ -3455,40 +2365,59 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
 }));
 
 // CUSTOMER RELATIONSHIP MANAGEMENT (authenticated administrator routes)
-app.get("/api/admin/customers",auth,asyncRoute(async(req,res)=>{
+app.get("/api/admin/customers", auth, asyncRoute(async (req, res) => {
   res.json(await query("SELECT * FROM crm_customers ORDER BY created_at DESC"));
 }));
-app.post("/api/admin/customers",auth,asyncRoute(async(req,res)=>{
-  const name=String(req.body.name||"").trim().slice(0,120);
-  const phone=String(req.body.phone||"").trim().slice(0,40);
-  const email=String(req.body.email||"").trim().toLowerCase().slice(0,160);
-  if(!name||(!phone&&!email))return res.status(400).json({error:"Name and phone or email are required"});
-  const existing=await query("SELECT id FROM crm_customers WHERE (phone<>'' AND phone=?) OR (email<>'' AND email=?) LIMIT 1",[phone,email]);
-  if(existing.length)return res.json({id:existing[0].id,existing:true});
-  const result=await query("INSERT INTO crm_customers (name,phone,email) VALUES (?,?,?)",[name,phone,email]);
-  res.status(201).json({id:result.insertId});
+app.post("/api/admin/customers", auth, asyncRoute(async (req, res) => {
+  const name = String(req.body.name || "").trim().slice(0, 120);
+  const phone = String(req.body.phone || "").trim().slice(0, 40);
+  const email = String(req.body.email || "").trim().toLowerCase().slice(0, 160);
+  if (!name || (!phone && !email)) return res.status(400).json({
+    error: "Name and phone or email are required"
+  });
+  const existing = await query("SELECT id FROM crm_customers WHERE (phone<>'' AND phone=?) OR (email<>'' AND email=?) LIMIT 1", [phone, email]);
+  if (existing.length) return res.json({
+    id: existing[0].id,
+    existing: true
+  });
+  const result = await query("INSERT INTO crm_customers (full_name, phone, email) VALUES (?, ?, ?)", [name, phone, email]);
+  res.status(201).json({
+    id: result.insertId
+  });
 }));
-app.patch("/api/admin/customers/:id",auth,asyncRoute(async(req,res)=>{
-  const id=Number(req.params.id);
-  if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({error:"Invalid customer ID"});
-  const preferred=String(req.body.preferred_cottage||"").slice(0,120);
-  const requests=String(req.body.special_requests||"").slice(0,2000);
-  const consent=req.body.marketing_consent===true?1:0;
-  const result=await query("UPDATE crm_customers SET preferred_cottage=?,special_requests=?,marketing_consent=? WHERE id=?",[preferred,requests,consent,id]);
-  if(!result.affectedRows)return res.status(404).json({error:"Customer not found"});
-  res.json({ok:true});
+app.patch("/api/admin/customers/:id", auth, asyncRoute(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({
+    error: "Invalid customer ID"
+  });
+  const preferred = String(req.body.preferred_cottage || "").slice(0, 120);
+  const requests = String(req.body.special_requests || "").slice(0, 2000);
+  const consent = req.body.marketing_consent === true ? 1 : 0;
+  const result = await query("UPDATE crm_customers SET preferred_cottage=?,special_requests=?,marketing_consent=? WHERE id=?", [preferred, requests, consent, id]);
+  if (!result.affectedRows) return res.status(404).json({
+    error: "Customer not found"
+  });
+  res.json({
+    ok: true
+  });
 }));
-app.get("/api/admin/customer-notes",auth,asyncRoute(async(req,res)=>{
+app.get("/api/admin/customer-notes", auth, asyncRoute(async (req, res) => {
   res.json(await query("SELECT id,customer_id,note,created_at FROM crm_customer_notes ORDER BY created_at DESC LIMIT 1000"));
 }));
-app.post("/api/admin/customer-notes",auth,asyncRoute(async(req,res)=>{
-  const id=Number(req.body.customer_id);
-  const note=String(req.body.note||"").trim();
-  if(!Number.isSafeInteger(id)||id<=0||!note||note.length>2000)return res.status(400).json({error:"Valid customer and note (max 2000 characters) required"});
-  const exists=await query("SELECT id FROM crm_customers WHERE id=?",[id]);
-  if(!exists.length)return res.status(404).json({error:"Customer not found"});
-  const result=await query("INSERT INTO crm_customer_notes (customer_id,note) VALUES (?,?)",[id,note]);
-  res.status(201).json({id:result.insertId});
+app.post("/api/admin/customer-notes", auth, asyncRoute(async (req, res) => {
+  const id = Number(req.body.customer_id);
+  const note = String(req.body.note || "").trim();
+  if (!Number.isSafeInteger(id) || id <= 0 || !note || note.length > 2000) return res.status(400).json({
+    error: "Valid customer and note (max 2000 characters) required"
+  });
+  const exists = await query("SELECT id FROM crm_customers WHERE id=?", [id]);
+  if (!exists.length) return res.status(404).json({
+    error: "Customer not found"
+  });
+  const result = await query("INSERT INTO crm_customer_notes (customer_id,note) VALUES (?,?)", [id, note]);
+  res.status(201).json({
+    id: result.insertId
+  });
 }));
 
 // app.use((req, res) => {
@@ -3568,8 +2497,3 @@ try {
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Ewalel running on port ${PORT}`);
 });
-
-
-
-
-
