@@ -1690,20 +1690,102 @@ app.patch("/api/admin/bookings/:id/details", auth, asyncRoute(async (req,res)=>{
   }catch(e){await conn.rollback();throw e;}finally{conn.release();}
 }));
 
-app.post("/api/admin/bookings/:id/cancel",auth,asyncRoute(async(req,res)=>{
-  const id=String(req.params.id||""), reason=String(req.body?.reason||"").trim();
-  if(!validId(id)||!reason||reason.length>500)return res.status(400).json({error:"Booking ID and cancellation reason required"});
-  const conn=await pool.getConnection();
-  try{await conn.beginTransaction();
-    const [rows]=await conn.execute("SELECT id,ref,status FROM bookings WHERE id=? FOR UPDATE",[id]);
-    if(!rows.length){await conn.rollback();return res.status(404).json({error:"Booking not found"});}
-    if(rows[0].status==="cancelled"){await conn.rollback();return res.status(409).json({error:"Already cancelled"});}
-    const [stays]=await conn.execute("SELECT stay_status FROM crm_guest_stays WHERE booking_reference=?",[rows[0].ref]);
-    if(stays.some(x=>x.stay_status!=="not_checked_in")){await conn.rollback();return res.status(409).json({error:"Checked-in/out stays cannot be cancelled here"});}
-    await conn.execute("UPDATE bookings SET status='cancelled' WHERE id=?",[id]);
-    await conn.execute("INSERT INTO booking_admin_actions (booking_id,action,reason,actor) VALUES (?,'cancel',?,?)",[id,reason,String(req.admin.email||"Admin")]);
-    await conn.commit();res.json({ok:true,refund_review_required:true});
-  }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+// Cancel by internal booking ID (B...) or public reservation reference (EW...).
+// Checked-in or checked-out stays must be handled through a separate
+// post-stay adjustment workflow; do not silently erase stay history.
+app.post("/api/admin/bookings/:id/cancel", auth, asyncRoute(async (req, res) => {
+  const identifier = String(req.params.id || "").trim();
+  const reason = String(req.body?.reason || "").trim();
+  if (!validId(identifier)) {
+    return res.status(400).json({ error: "Invalid booking ID or reservation reference" });
+  }
+  if (!reason || reason.length > 500) {
+    return res.status(400).json({ error: "A cancellation reason (1–500 characters) is required" });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.execute(
+      "SELECT id, ref, status FROM bookings WHERE id = ? OR ref = ? LIMIT 1 FOR UPDATE",
+      [identifier, identifier]
+    );
+    if (!rows.length) {
+      await conn.rollback();
+      return res.status(404).json({ error: "Reservation not found. Refresh bookings and try again." });
+    }
+    const booking = rows[0];
+    if (booking.status === "cancelled") {
+      await conn.rollback();
+      return res.status(409).json({ error: "This reservation is already cancelled." });
+    }
+    const [stays] = await conn.execute(
+      "SELECT stay_status FROM crm_guest_stays WHERE booking_reference = ? FOR UPDATE",
+      [booking.ref]
+    );
+    const progressed = stays.find(s => s.stay_status !== "not_checked_in");
+    if (progressed) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: `This reservation has a ${progressed.stay_status.replaceAll("_", " ")} stay record and cannot be cancelled. Use a post-stay financial adjustment instead.`,
+        code: "STAY_ALREADY_STARTED",
+        stay_status: progressed.stay_status
+      });
+    }
+    await conn.execute("UPDATE bookings SET status = 'cancelled' WHERE id = ?", [booking.id]);
+    await conn.execute(
+      "INSERT INTO booking_admin_actions (booking_id, action, reason, actor) VALUES (?, 'cancel', ?, ?)",
+      [booking.id, reason, String(req.admin.email || "Admin")]
+    );
+    await conn.commit();
+    return res.json({
+      ok: true,
+      booking_id: booking.id,
+      booking_reference: booking.ref,
+      status: "cancelled",
+      refund_review_required: true,
+      message: "Reservation cancelled. No refund has been transferred."
+    });
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}));
+
+// Early departure closes an active stay without rewriting booked dates or payment history.
+app.post('/api/admin/bookings/:id/early-departure', auth, asyncRoute(async (req, res) => {
+  const identifier = String(req.params.id || '').trim();
+  const reason = String(req.body?.reason || '').trim();
+  if (!validId(identifier) || reason.length < 5 || reason.length > 500)
+    return res.status(400).json({error:'Valid booking identifier and reason (5–500 characters) required'});
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [bookings] = await conn.execute('SELECT id, ref, status FROM bookings WHERE id=? OR ref=? LIMIT 1 FOR UPDATE', [identifier,identifier]);
+    if (!bookings.length) { await conn.rollback(); return res.status(404).json({error:'Reservation not found'}); }
+    const b=bookings[0];
+    if (b.status==='cancelled') { await conn.rollback(); return res.status(409).json({error:'Cancelled reservations cannot have early departures'}); }
+    const [result] = await conn.execute(`UPDATE crm_guest_stays
+      SET stay_status='checked_out', actual_check_out=NOW(), checked_out_by=?
+      WHERE booking_reference=? AND stay_status='checked_in'`, [String(req.admin.email || 'Admin'), b.ref]);
+    if (!result.affectedRows) { await conn.rollback(); return res.status(409).json({error:'Early departure requires a currently checked-in guest'}); }
+    await conn.execute("INSERT INTO booking_admin_actions (booking_id,action,reason,actor) VALUES (?,'early_departure',?,?)", [b.id,reason,String(req.admin.email || 'Admin')]);
+    await conn.commit();
+    res.json({ok:true,booking_id:b.id,booking_reference:b.ref,stay_status:'checked_out',refund_review_available:true,message:'Early departure recorded. Original booked dates and charges retained; review any refund separately.'});
+  } catch(err) { await conn.rollback(); throw err; } finally { conn.release(); }
+}));
+
+// Read-only cancellation and refund audit for the reservation.
+app.get('/api/admin/bookings/:id/action-history', auth, asyncRoute(async (req,res) => {
+  const id=String(req.params.id || '').trim();
+  if (!validId(id)) return res.status(400).json({error:'Invalid booking identifier'});
+  const [bookings]=await pool.execute('SELECT id,ref,status FROM bookings WHERE id=? OR ref=? LIMIT 1',[id,id]);
+  if (!bookings.length) return res.status(404).json({error:'Reservation not found'});
+  const [actions]=await pool.execute('SELECT id,action,reason,actor,created_at FROM booking_admin_actions WHERE booking_id=? ORDER BY created_at DESC,id DESC LIMIT 100',[bookings[0].id]);
+  const [refunds]=await pool.execute('SELECT id,amount,method,status,reference,reason,recorded_by,created_at FROM booking_refunds WHERE booking_id=? ORDER BY created_at DESC,id DESC LIMIT 100',[bookings[0].id]);
+  res.json({booking_reference:bookings[0].ref,booking_status:bookings[0].status,actions,refunds});
 }));
 
 // Archiving retains booking and financial audit records.
@@ -1719,34 +1801,154 @@ app.delete("/api/admin/bookings/:id",auth,asyncRoute(async(req,res)=>{
   }catch(e){await conn.rollback();if(e.code==="ER_DUP_ENTRY")return res.status(409).json({error:"Already archived"});throw e;}finally{conn.release();}
 }));
 
-// Financial review and refund audit. This does NOT initiate a provider transfer.
-app.get("/api/admin/bookings/:id/refund-summary",auth,asyncRoute(async(req,res)=>{
-  const id=String(req.params.id||"");if(!validId(id))return res.status(400).json({error:"Invalid booking ID"});
-  const [rows]=await query("SELECT id,total,status FROM bookings WHERE id=?",[id]);
-  if(!rows.length)return res.status(404).json({error:"Booking not found"});
-  const [payments]=await query("SELECT COALESCE(SUM(amount),0) AS amount FROM payments WHERE booking_id=? AND status='completed'",[id]);
-  const [refunds]=await query("SELECT COALESCE(SUM(CASE WHEN status='completed' THEN amount ELSE 0 END),0) AS completed,COALESCE(SUM(CASE WHEN status='pending' THEN amount ELSE 0 END),0) AS pending FROM booking_refunds WHERE booking_id=?",[id]);
-  const paid=Number(payments.amount), completed=Number(refunds.completed), pending=Number(refunds.pending);
-  const booking=rows[0], due=booking.status==='cancelled'?0:Number(booking.total);
-  res.json({booking_total:Number(booking.total),verified_paid:paid,completed_refunds:completed,pending_refunds:pending,maximum_refundable:Math.max(0,paid-completed-pending),potential_overpayment:Math.max(0,paid-completed-due),cancelled:booking.status==='cancelled'});
+// Refund management: financial ledger only; never triggers a provider transfer.
+// The same booking identifier resolver is used for public EW references and internal IDs.
+async function resolveRefundBooking(conn, identifier) {
+  const [rows] = await conn.execute(
+    "SELECT id, ref, total, status FROM bookings WHERE id=? OR ref=? LIMIT 1 FOR UPDATE",
+    [identifier, identifier]
+  );
+  return rows[0] || null;
+}
+async function refundFigures(conn, booking) {
+  const [[paidRow]] = await conn.execute(
+    "SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE booking_id=? AND status='completed'",
+    [booking.id]
+  );
+  const [[refundRow]] = await conn.execute(
+    `SELECT COALESCE(SUM(CASE WHEN status='completed' THEN amount ELSE 0 END),0) AS completed,
+            COALESCE(SUM(CASE WHEN status='pending' THEN amount ELSE 0 END),0) AS pending
+     FROM booking_refunds WHERE booking_id=?`, [booking.id]
+  );
+  const paid = Number(paidRow.paid), completed = Number(refundRow.completed), pending = Number(refundRow.pending);
+  const available = Math.max(0, Math.round((paid - completed - pending) * 100) / 100);
+  const normalDue = booking.status === 'cancelled' ? 0 : Number(booking.total);
+  return {
+    booking_id: booking.id, booking_reference: booking.ref, booking_status: booking.status,
+    booking_total: Number(booking.total), verified_paid: paid,
+    completed_refunds: completed, pending_refunds: pending,
+    maximum_refundable: available,
+    potential_overpayment: Math.max(0, Math.round((paid - completed - pending - normalDue) * 100) / 100),
+    cancelled: booking.status === 'cancelled'
+  };
+}
+// Persist an administrator refund decision independently of payment transfers.
+app.post('/api/admin/bookings/:id/refund-decision', auth, asyncRoute(async (req, res) => {
+  const identifier = String(req.params.id || '');
+  const decision = String(req.body?.decision || '');
+  const reason = String(req.body?.reason || '').trim();
+  if (!validId(identifier) || !['available', 'not_available', 'review_later'].includes(decision) || reason.length < 3 || reason.length > 500) {
+    return res.status(400).json({error: 'Select a decision and provide a reason (3–500 characters).'});
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const booking = await resolveRefundBooking(conn, identifier);
+    if (!booking) { await conn.rollback(); return res.status(404).json({error: 'Reservation not found'}); }
+    const [result] = await conn.execute(
+      'INSERT INTO booking_refund_decisions (booking_id, decision, reason, actor) VALUES (?, ?, ?, ?)',
+      [booking.id, decision, reason, String(req.admin.email || 'Admin')]
+    );
+    await conn.execute(
+      "INSERT INTO booking_admin_actions (booking_id, action, reason, actor) VALUES (?, 'refund', ?, ?)",
+      [booking.id, `Refund decision: ${decision}. ${reason}`, String(req.admin.email || 'Admin')]
+    );
+    await conn.commit();
+    res.status(201).json({ok:true, decision_id:result.insertId, decision, external_transfer_initiated:false});
+  } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
 }));
-app.post("/api/admin/bookings/:id/refunds",auth,asyncRoute(async(req,res)=>{
-  const id=String(req.params.id||""),amount=Number(req.body?.amount),method=String(req.body?.method||""),status=String(req.body?.status||"pending"),reference=String(req.body?.reference||"").trim(),reason=String(req.body?.reason||"").trim();
-  if(!validId(id)||!Number.isFinite(amount)||amount<=0||Math.round(amount*100)!==amount*100||!['cash','mpesa','card','bank'].includes(method)||!['pending','completed'].includes(status)||!reason||reason.length>500||reference.length>120)return res.status(400).json({error:"Enter valid refund amount, method, status and reason"});
-  if(status==='completed'&&!reference)return res.status(400).json({error:"A completed refund requires a verified external receipt/reference"});
-  const conn=await pool.getConnection();
-  try{await conn.beginTransaction();
-    const [rows]=await conn.execute("SELECT id FROM bookings WHERE id=? FOR UPDATE",[id]);
-    if(!rows.length){await conn.rollback();return res.status(404).json({error:"Booking not found"});}
-    const [bookingDetails]=await conn.execute("SELECT total,status FROM bookings WHERE id=?",[id]);
-    const [payments]=await conn.execute("SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE booking_id=? AND status='completed'",[id]);
-    const [refunded]=await conn.execute("SELECT COALESCE(SUM(amount),0) AS reserved FROM booking_refunds WHERE booking_id=? AND status IN ('pending','completed')",[id]);
-    const due=bookingDetails[0].status==='cancelled'?0:Number(bookingDetails[0].total);
-    if(amount>Math.max(0,Number(payments[0].paid)-Number(refunded[0].reserved)-due)+0.00001){await conn.rollback();return res.status(409).json({error:"Refund exceeds calculated overpayment; review refund policy and booking balance"});}
-    if(amount>Number(payments[0].paid)-Number(refunded[0].reserved)+0.00001){await conn.rollback();return res.status(409).json({error:"Refund exceeds available verified payments"});}
-    await conn.execute("INSERT INTO booking_refunds (booking_id,amount,method,status,reference,reason,recorded_by) VALUES (?,?,?,?,?,?,?)",[id,amount,method,status,reference,reason,String(req.admin.email||"Admin")]);
-    await conn.commit();res.status(201).json({ok:true,status,external_transfer_initiated:false});
-  }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+
+// Versioned route probe for administrators diagnosing a missing refund endpoint.
+// Does not disclose customer, payment or booking information.
+app.get("/api/admin/refund-service/status", auth, (req, res) => {
+  res.json({ ok: true, service: "refund-review", version: "cancel-then-refund-v2" });
+});
+
+app.get('/api/admin/bookings/:id/refund-summary', auth, asyncRoute(async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!validId(id)) return res.status(400).json({ error: 'Invalid booking identifier' });
+  const conn = await pool.getConnection();
+  try {
+    const booking = await resolveRefundBooking(conn, id);
+    if (!booking) return res.status(404).json({ error: 'Reservation not found' });
+    const summary = await refundFigures(conn, booking);
+    const [refunds] = await conn.execute(
+      `SELECT id, amount, method, status, reference, reason, recorded_by, created_at
+       FROM booking_refunds WHERE booking_id=? ORDER BY id DESC`, [booking.id]
+    );
+    const [decisions] = await conn.execute(
+      'SELECT id, decision, reason, actor, created_at FROM booking_refund_decisions WHERE booking_id=? ORDER BY id DESC LIMIT 50',
+      [booking.id]
+    );
+    res.json({ ...summary, refunds, decisions });
+  } finally { conn.release(); }
+}));
+app.post('/api/admin/bookings/:id/refunds', auth, asyncRoute(async (req, res) => {
+  const identifier = String(req.params.id || '');
+  const amount = Number(req.body?.amount);
+  const method = String(req.body?.method || '');
+  const reason = String(req.body?.reason || '').trim();
+  const postStay = req.body?.post_stay_adjustment === true;
+  const approval = String(req.body?.approval_note || '').trim();
+  if (!validId(identifier) || !Number.isFinite(amount) || amount <= 0 ||
+      Math.round(amount * 100) !== Math.round(amount * 10000) / 100 ||
+      !['mpesa','card','cash','bank'].includes(method) || !reason || reason.length > 500) {
+    return res.status(400).json({ error: 'Valid amount (two decimals), method and reason are required' });
+  }
+  // No client can mark money as sent by merely creating a refund record.
+  if (req.body?.status && req.body.status !== 'pending') {
+    return res.status(400).json({ error: 'New refunds must start as pending' });
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const booking = await resolveRefundBooking(conn, identifier);
+    if (!booking) { await conn.rollback(); return res.status(404).json({ error: 'Reservation not found' }); }
+    const [stays] = await conn.execute(
+      "SELECT stay_status FROM crm_guest_stays WHERE booking_reference=?", [booking.ref]
+    );
+    const hasStarted = stays.some(row => ['checked_in','checked_out'].includes(row.stay_status));
+    if (hasStarted && (!postStay || approval.length < 10)) {
+      await conn.rollback();
+      return res.status(409).json({ error: 'Post-stay refunds require explicit approval notes (10+ characters) and post-stay adjustment confirmation' });
+    }
+    const totals = await refundFigures(conn, booking);
+    const normalLimit = booking.status === 'cancelled' || (postStay && hasStarted)
+      ? totals.maximum_refundable : totals.potential_overpayment;
+    if (amount > normalLimit + 0.00001) {
+      await conn.rollback();
+      return res.status(409).json({ error: 'Refund exceeds available verified payments or approved refundable balance' });
+    }
+    const [result] = await conn.execute(
+      `INSERT INTO booking_refunds (booking_id,amount,method,status,reference,reason,recorded_by)
+       VALUES (?,?,?,'pending',?,?,?)`,
+      [booking.id, amount, method, '', postStay ? `${reason} | Post-stay approval: ${approval}` : reason, String(req.admin.email || 'Admin')]
+    );
+    await conn.execute(
+      "INSERT INTO booking_admin_actions (booking_id,action,reason,actor) VALUES (?,'refund',?,?)",
+      [booking.id, `Pending refund #${result.insertId}, KES ${amount}, ${method}; ${reason}; approval: ${approval}`, String(req.admin.email || 'Admin')]
+    );
+    await conn.commit();
+    res.status(201).json({ ok: true, refund_id: result.insertId, status: 'pending', external_transfer_initiated: false });
+  } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
+}));
+// After an external provider or cash transaction is independently verified, record the receipt.
+app.patch('/api/admin/refunds/:refundId/complete', auth, asyncRoute(async (req, res) => {
+  const refundId = String(req.params.refundId || '');
+  const reference = String(req.body?.reference || '').trim();
+  if (!/^[1-9]\d*$/.test(refundId) || reference.length < 4 || reference.length > 120) {
+    return res.status(400).json({ error: 'Valid refund ID and verified receipt reference required' });
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.execute('SELECT id,booking_id,status FROM booking_refunds WHERE id=? FOR UPDATE', [refundId]);
+    if (!rows.length) { await conn.rollback(); return res.status(404).json({ error: 'Refund not found' }); }
+    if (rows[0].status !== 'pending') { await conn.rollback(); return res.status(409).json({ error: 'Refund is not pending' }); }
+    await conn.execute("UPDATE booking_refunds SET status='completed', reference=? WHERE id=?", [reference, refundId]);
+    await conn.execute("INSERT INTO booking_admin_actions (booking_id,action,reason,actor) VALUES (?,'refund',?,?)", [rows[0].booking_id, `Refund #${refundId} externally verified; receipt ${reference}`, String(req.admin.email || 'Admin')]);
+    await conn.commit(); res.json({ ok: true, status: 'completed', external_transfer_initiated: false });
+  } catch (err) { await conn.rollback(); throw err; } finally { conn.release(); }
 }));
 
 // ======================================================

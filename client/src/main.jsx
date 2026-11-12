@@ -1447,23 +1447,79 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   const [actionForm, setActionForm] = useState({});
   const [modalError, setModalError] = useState("");
   const [refundModal, setRefundModal] = useState(null);
+  const [historyModal, setHistoryModal] = useState(null);
+  const [historyData, setHistoryData] = useState(null);
   const [refundSummary, setRefundSummary] = useState(null);
-  const [refundForm, setRefundForm] = useState({ amount: "", method: "mpesa", status: "pending", reference: "", reason: "" });
+  const [refundDecision, setRefundDecision] = useState("review_later");
+  const [refundDecisionReason, setRefundDecisionReason] = useState("");
+  const [refundForm, setRefundForm] = useState({ amount: "", method: "mpesa", status: "pending", reference: "", reason: "", post_stay_adjustment: false, approval_note: "" });
+  const bookingApiId = (booking) => booking?.id ?? booking?.booking_id ?? booking?.bookingId;
+  async function openHistory(booking) {
+    setHistoryModal(booking); setHistoryData(null); setModalError('');
+    try {
+      const result = await api(`/admin/bookings/${encodeURIComponent(bookingApiId(booking))}/action-history`, {}, token);
+      setHistoryData(result);
+    } catch (err) { setModalError(err.message); }
+  }
   async function openRefund(booking) {
+    const bookingId = bookingApiId(booking);
+    if (bookingId == null || bookingId === "") { setModalError("This booking has no database ID. Refresh bookings and try again."); return; }
+    setRefundDecision("review_later"); setRefundDecisionReason("");
     setRefundModal(booking); setRefundSummary(null); setModalError("");
     try {
-      const summary = await api(`/admin/bookings/${encodeURIComponent(booking.id)}/refund-summary`, {}, token);
+      const summary = await api(`/admin/bookings/${encodeURIComponent(bookingId)}/refund-summary`, {}, token);
       setRefundSummary(summary);
-      setRefundForm({ amount: String(Math.min(summary.maximum_refundable, summary.potential_overpayment)), method: "mpesa", status: "pending", reference: "", reason: "Booking amendment or cancellation" });
+      setRefundDecision(summary.decisions?.[0]?.decision || "review_later");
+      setRefundDecisionReason("");
+      const postStay = stayStatus(booking) !== "not_checked_in";
+      setRefundForm({ amount: String(Math.max(0, postStay || summary.cancelled ? summary.maximum_refundable : summary.potential_overpayment)), method: "mpesa", status: "pending", reference: "", reason: postStay ? "Post-stay refund review" : "Booking amendment or cancellation", post_stay_adjustment: postStay, approval_note: "" });
     } catch (err) { setModalError(err.message); }
   }
   async function submitRefund(e) {
     e.preventDefault(); if (!refundModal || busy) return;
+    if (refundDecision !== "available" || refundSummary?.decisions?.[0]?.decision !== "available") {
+      setModalError("Save an administrator decision of 'Refund available' before recording a refund."); return;
+    }
     setBusy(true); setModalError("");
     try {
-      await api(`/admin/bookings/${encodeURIComponent(refundModal.id)}/refunds`, { method: "POST", body: JSON.stringify({ ...refundForm, amount: Number(refundForm.amount) }) }, token);
+      await api(`/admin/bookings/${encodeURIComponent(bookingApiId(refundModal))}/refunds`, { method: "POST", body: JSON.stringify({ ...refundForm, amount: Number(refundForm.amount) }) }, token);
       setRefundModal(null); setRefundSummary(null); await refresh(); await reloadExtra();
-      onNotice(refundForm.status === "completed" ? "Refund recorded as completed (external receipt required)." : "Refund recorded as pending. No money has been transferred.");
+      onNotice("Refund recorded as pending. No money has been transferred.");
+    } catch (err) { setModalError(err.message); } finally { setBusy(false); }
+  }
+  async function saveRefundDecision() {
+    if (!refundModal || busy) return;
+    if (refundDecisionReason.trim().length < 3) {
+      setModalError("Enter a reason for the administrator's decision."); return;
+    }
+    setBusy(true); setModalError("");
+    try {
+      await api(`/admin/bookings/${encodeURIComponent(bookingApiId(refundModal))}/refund-decision`, {
+        method: "POST", body: JSON.stringify({decision:refundDecision, reason:refundDecisionReason.trim()})
+      }, token);
+      if (refundDecision === "available") {
+        const summary = await api(`/admin/bookings/${encodeURIComponent(bookingApiId(refundModal))}/refund-summary`, {}, token);
+        setRefundSummary(summary);
+        onNotice("Refund eligibility approved. You can now record a pending refund.");
+      } else {
+        setRefundModal(null); setRefundSummary(null);
+        onNotice(refundDecision === "not_available" ? "No-refund decision saved." : "Refund review saved for later.");
+      }
+      await refresh();
+    } catch(err) { setModalError(err.message); }
+    finally { setBusy(false); }
+  }
+  async function completeRefund(refundId) {
+    const reference = window.prompt("Enter the verified external refund receipt / transaction reference:");
+    if (!reference) return;
+    setBusy(true); setModalError("");
+    try {
+      await api(`/admin/refunds/${encodeURIComponent(refundId)}/complete`, {
+        method: "PATCH", body: JSON.stringify({ reference: reference.trim() })
+      }, token);
+      await openRefund(refundModal);
+      await refresh();
+      onNotice("Refund marked completed using the externally verified receipt. No transfer was initiated here.");
     } catch (err) { setModalError(err.message); } finally { setBusy(false); }
   }
   const openAction = (type, booking = null) => {
@@ -1486,6 +1542,8 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
     if (!actionModal || busy) return;
     const { type, booking: b } = actionModal;
     setModalError("");
+    const bookingId = bookingApiId(b);
+    if (type !== "blacklist" && (bookingId == null || bookingId === "")) return setModalError("Missing database booking ID. Refresh the booking list and try again.");
     if (type === "edit") {
       const n = Number(actionForm.guests);
       if (!Number.isInteger(n) || n < 1 || n > 30) return setModalError("Enter a valid number of guests.");
@@ -1497,25 +1555,35 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
     setBusy(true);
     try {
       if (type === "edit") {
-        await api(`/admin/bookings/${encodeURIComponent(b.id)}/details`, {
+        await api(`/admin/bookings/${encodeURIComponent(bookingId)}/details`, {
           method: "PATCH", body: JSON.stringify({
             cottage_id: actionForm.cottage_id, check_in: actionForm.check_in, check_out: actionForm.check_out,
             guests: Number(actionForm.guests), additional_guests: actionForm.additional_guests.map(g => ({ name: g.name.trim(), phone: g.phone?.trim() || "" }))
           })
         }, token);
+      } else if (type === "early") {
+        await api(`/admin/bookings/${encodeURIComponent(bookingId)}/early-departure`, { method: "POST", body: JSON.stringify({ reason: actionForm.reason.trim() }) }, token);
       } else if (type === "cancel") {
-        await api(`/admin/bookings/${encodeURIComponent(b.id)}/cancel`, { method: "POST", body: JSON.stringify({ reason: actionForm.reason.trim() }) }, token);
+        const cancellation = await api(`/admin/bookings/${encodeURIComponent(bookingId)}/cancel`, {
+          method: "POST",
+          body: JSON.stringify({ reason: actionForm.reason.trim() })
+        }, token);
+        if (!cancellation?.ok && !cancellation?.cancelled && cancellation?.status !== "cancelled") {
+          throw new Error("Cancellation was not confirmed by the server. The refund window will not open.");
+        }
       } else if (type === "delete") {
-        await api(`/admin/bookings/${encodeURIComponent(b.id)}`, { method: "DELETE" }, token);
+        await api(`/admin/bookings/${encodeURIComponent(bookingId)}`, { method: "DELETE" }, token);
       } else if (type === "blacklist") {
         await api("/admin/blacklist", { method: "POST", body: JSON.stringify({ name: current.name, phone: current.phone, email: current.email, reason: actionForm.reason.trim() }) }, token);
       }
       if (type !== "blacklist") await refresh();
       await reloadExtra();
-      onNotice(({ edit: "Booking updated. Review any refund due.", cancel: "Booking cancelled. Review any refund due.", delete: "Booking archived for audit.", blacklist: "Guest added to booking restriction list." })[type]);
+      onNotice(({ edit: "Booking updated. Review any refund due.", cancel: "Booking cancelled. Review any refund due.", early: "Early departure recorded. Review any refund separately.", delete: "Booking archived for audit.", blacklist: "Guest added to booking restriction list." })[type]);
       setActionModal(null);
-      if (type === "edit" || type === "cancel") await openRefund(b);
-    } catch (err) { setModalError(err.message); } finally { setBusy(false); }
+      if (type === "edit" || type === "cancel" || type === "early") {
+        await openRefund(type === "cancel" ? { ...b, status: "cancelled" } : b);
+      }
+    } catch (err) { setModalError(err.message || "The reservation action failed. Check the booking status and server logs."); } finally { setBusy(false); }
   }
   const reloadExtra = useCallback(async () => {
     const [r, n, c, e, flags, archived] = await Promise.all([
@@ -1736,15 +1804,19 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
         <div className="crm-tabs" style={{ marginBottom: 20 }}>{["Overview", "Bookings & Payments", "Activity & Notes", "Preferences", "Loyalty"].map(t => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>)}</div>
         {tab === "Overview" && <div className="crm-grid"><section style={card}><h3>Customer Summary</h3>{[["First booking", date(current.first)], ["Latest booking", date(current.last)], ["Total bookings", current.bookings.length], ["Completed stays", current.completed], ["Cancellations", current.cancellations], ["Verified spending", fmt(current.total)], ["Last stay", date(current.lastStay?.check_out)]].map(([a, b]) => <div className="crm-detail" key={a}><span>{a}</span><b>{b}</b></div>)}</section><div><section style={{ ...card, background: "#eaf8ef", marginBottom: 15 }}><h3>Next Stay</h3>{current.next ? <><strong>{date(current.next.check_in)} – {date(current.next.check_out)}</strong><p>{current.next.cottage_name || current.next.unit_id}</p><span className="crm-chip">{current.next.status.replaceAll("_", " ")}</span></> : <p>No upcoming confirmed stay</p>}</section><section style={{ ...card, background: "#edf5ff", marginBottom: 15 }}><h3>Retention Opportunity</h3><p>{current.bookings.length > 1 ? "Returning guest. Consider a personalized offer if marketing consent is recorded." : "New guest. Consider a post-stay feedback request with appropriate consent."}</p><button className="crm-btn" onClick={() => setTab("Loyalty")}>View loyalty</button></section><section style={card}><h3>Quick Actions</h3><div className="crm-actions"><button className="crm-btn" onClick={() => setTab("Activity & Notes")}>Add Note</button><button className="crm-btn" onClick={() => setTab("Bookings & Payments")}>View Stays</button><button className="crm-btn" onClick={() => setTab("Preferences")}>Preferences</button></div></section></div></div>}
         {tab === "Bookings & Payments" && <div><h3>Bookings & Payments</h3>{current.bookings.map(b => {
-          const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking" key={b.id} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: 16, alignItems: "start" }}><div><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span>{archivedIds.has(String(b.id)) && <span className="crm-status-badge crm-status-archived">Archived</span>}{blacklistedEntry && <span className="crm-status-badge crm-status-blacklisted">Blacklisted guest</span>}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>
+          const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking crm-booking-layout" key={b.id}><div><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span>{archivedIds.has(String(b.id)) && <span className="crm-status-badge crm-status-archived">Archived</span>}{blacklistedEntry && <span className="crm-status-badge crm-status-blacklisted">Blacklisted guest</span>}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>
             {ps.map(p => <p key={p.id} style={{ fontSize: 13, margin: "5px 0" }}>Payment: {p.payment_method} · {fmt(p.amount)} · {p.status} · Ref: {p.transaction_reference || "—"}</p>)}{rs.map(r => <p key={r.trans_id} style={{ fontSize: 13, margin: "5px 0" }}>M-PESA receipt: <b>{r.receipt_number || "Not provided"}</b> · {r.status} · {date(r.received_at)}</p>)}{!ps.length && !rs.length && <p className="crm-muted crm-mini">No recorded payment or receipt.</p>}
-            <div className="crm-booking-actions" style={{ marginTop: 14 }}>
+            {events.filter(e => String(e.booking_id) === String(b.id) && e.event_type).map(e => <p key={e.id} className="crm-muted crm-mini">{String(e.event_type || e.stay_status || "Stay update").replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div><aside style={{ padding: 16, borderRadius: 12, border: "1px solid #cce1d9", background: "#f1f8f5", minWidth: 0 }}><h4 style={{ margin: "0 0 12px", color: "#103f43" }}>Guests accompanying this booking</h4><p style={{ margin: "0 0 8px" }}><b>Primary guest:</b> {b.name || b.guest_name || current.name}</p><p className="crm-muted crm-mini">Total guests: {Number(b.guests) || 1}</p>{Array.isArray(b.additional_guests) && b.additional_guests.length ? <ol style={{ paddingLeft: 20, marginBottom: 0 }}>{b.additional_guests.map((guest, index) => <li key={guest.guest_order || index} style={{ marginBottom: 9 }}><b>{guest.full_name || guest.name || `Guest ${index + 2}`}</b>{guest.phone ? <div className="crm-muted crm-mini">{guest.phone}</div> : null}</li>)}</ol> : <p className="crm-muted crm-mini">{Number(b.guests) > 1 ? "Accompanying guest names have not been recorded for this booking." : "No accompanying guests."}</p>}</aside>            <div className="crm-booking-actions" >
               <button type="button" className="crm-btn crm-action-edit" disabled={busy || b.status === "cancelled" || archivedIds.has(String(b.id))} onClick={() => openAction("edit", b)}>Edit Booking</button>
-              <button type="button" className="crm-btn crm-action-cancel" disabled={busy || b.status === "cancelled" || archivedIds.has(String(b.id))} onClick={() => openAction("cancel", b)}>Cancel Booking</button>
+              {b.status === "cancelled" ? <button type="button" className="crm-btn crm-action-cancel" onClick={() => openHistory(b)}>Cancellation History</button>
+                : stayStatus(b) === "checked_in" ? <button type="button" className="crm-btn crm-action-cancel" disabled={busy} onClick={() => openAction("early", b)}>Early Departure</button>
+                : stayStatus(b) === "checked_out" ? <button type="button" className="crm-btn crm-action-cancel" disabled={busy} onClick={() => openRefund(b)}>Post-Stay Refund</button>
+                : <button type="button" className="crm-btn crm-action-cancel" disabled={busy || archivedIds.has(String(b.id))} onClick={() => openAction("cancel", b)}>Cancel Booking</button>}
               <button type="button" className="crm-btn crm-action-blacklist" disabled={busy || !!blacklistedEntry} onClick={() => openAction("blacklist", b)}>{blacklistedEntry ? "Already Blacklisted" : "Blacklist Guest"}</button>
+              <button type="button" className="crm-btn crm-action-refund" disabled={busy} onClick={() => b.status === "cancelled" ? openHistory(b) : openRefund(b)}>{b.status === "cancelled" ? "Refund History" : "Refund Review"}</button>
               <button type="button" className="crm-btn crm-action-delete" disabled={busy || archivedIds.has(String(b.id))} onClick={() => openAction("delete", b)}>{archivedIds.has(String(b.id)) ? "Archived" : "Delete Booking"}</button>
             </div>
-            {events.filter(e => String(e.booking_id) === String(b.id) && e.event_type).map(e => <p key={e.id} className="crm-muted crm-mini">{String(e.event_type || e.stay_status || "Stay update").replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div><aside style={{ padding: 16, borderRadius: 12, border: "1px solid #cce1d9", background: "#f1f8f5", minWidth: 0 }}><h4 style={{ margin: "0 0 12px", color: "#103f43" }}>Guests accompanying this booking</h4><p style={{ margin: "0 0 8px" }}><b>Primary guest:</b> {b.name || b.guest_name || current.name}</p><p className="crm-muted crm-mini">Total guests: {Number(b.guests) || 1}</p>{Array.isArray(b.additional_guests) && b.additional_guests.length ? <ol style={{ paddingLeft: 20, marginBottom: 0 }}>{b.additional_guests.map((guest, index) => <li key={guest.guest_order || index} style={{ marginBottom: 9 }}><b>{guest.full_name || guest.name || `Guest ${index + 2}`}</b>{guest.phone ? <div className="crm-muted crm-mini">{guest.phone}</div> : null}</li>)}</ol> : <p className="crm-muted crm-mini">{Number(b.guests) > 1 ? "Accompanying guest names have not been recorded for this booking." : "No accompanying guests."}</p>}</aside></div>
+</div>
         })}{!current.bookings.length && <p>No bookings yet.</p>}</div>}
         {tab === "Activity & Notes" && <div><h3>Customer Activity & Notes</h3><form onSubmit={saveNote}><textarea className="crm-input" rows={3} placeholder="Add an internal customer service note" value={noteText} onChange={e => setNoteText(e.target.value)} required /><button className="crm-btn crm-primary" style={{ marginTop: 10 }} disabled={busy || !noteText.trim()}>Save Note</button></form><div style={{ marginTop: 18 }}>{notes.filter(n => customerRow && String(n.customer_id) === String(customerRow.id)).map(n => <div className="crm-booking" key={n.id}><p>{n.note}</p><small className="crm-muted">{date(n.created_at)}</small></div>)}{!customerRow && <p className="crm-muted">No saved customer notes.</p>}</div></div>}
         {tab === "Preferences" && <form onSubmit={savePreferences}><h3>Guest Preferences</h3><label>Preferred cottage<input className="crm-input" value={pref.preferred_cottage} onChange={e => setPref({ ...pref, preferred_cottage: e.target.value })} /></label><label style={{ display: "block", marginTop: 14 }}>Special requests<textarea className="crm-input" rows={4} value={pref.special_requests} onChange={e => setPref({ ...pref, special_requests: e.target.value })} /></label><label style={{ display: "flex", alignItems: "center", gap: 9, margin: "14px 0" }}><input type="checkbox" checked={pref.marketing_consent} onChange={e => setPref({ ...pref, marketing_consent: e.target.checked })} /> Marketing consent recorded</label><p className="crm-muted crm-mini">Only tick this when the guest has explicitly consented. This does not send messages.</p><button className="crm-btn crm-primary" disabled={busy}>Save Preferences</button></form>}
@@ -1754,7 +1826,7 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
       <form className="ew-action-modal" role="dialog" aria-modal="true" aria-labelledby="ew-action-title" onSubmit={submitAction}>
         <div className="ew-action-header">
           <div><div className="ew-action-eyebrow">EWALEL COTTAGES · RESERVATION MANAGEMENT</div>
-            <h2 id="ew-action-title">{{ edit: "Edit booking", cancel: "Cancel booking", delete: "Archive booking", blacklist: "Restrict guest bookings" }[actionModal.type]}</h2>
+            <h2 id="ew-action-title">{{ edit: "Edit booking", cancel: "Cancel booking", early: "Early departure / adjust stay", delete: "Archive booking", blacklist: "Restrict guest bookings" }[actionModal.type]}</h2>
             <p>{actionModal.type === "blacklist" ? current?.name : `Reservation #${actionModal.booking?.ref || actionModal.booking?.id}`}</p>
           </div><button type="button" className="ew-action-close" aria-label="Close" onClick={closeAction} disabled={busy}>×</button>
         </div>
@@ -1777,36 +1849,81 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
             <div className="ew-action-info">Availability, cottage capacity and pricing must be validated by the server. Existing payment records will not be modified automatically.</div>
           </> : <>
             <div className={`ew-action-info ${actionModal.type === "delete" ? "ew-action-danger" : ""}`}>
-              {actionModal.type === "cancel" ? "This cancels the reservation. Payments already collected are not automatically refunded; review any refund obligation separately." : actionModal.type === "delete" ? "This archives the booking from active administration views. Financial and audit records should remain retained." : "Restrict this guest from making future reservations. The backend must also screen all accompanying guests for this restriction."}
+              {actionModal.type === "cancel" ? "Cancellation and refunds are separate. After the booking is cancelled, the refund review opens automatically. No money is transferred by this action." : actionModal.type === "delete" ? "This archives the booking from active administration views. Financial and audit records should remain retained." : "Restrict this guest from making future reservations. The backend must also screen all accompanying guests for this restriction."}
             </div>
+            {actionModal.type === "cancel" && <div className="ew-cancel-review"><h3>Cancellation & refund review</h3><div><span>Reservation</span><strong>#{actionModal.booking?.ref || actionModal.booking?.id || "—"}</strong></div><div><span>Guest</span><strong>{actionModal.booking?.name || actionModal.booking?.guest_name || current?.name || "—"}</strong></div><div><span>Booking amount</span><strong>{fmt(Number(actionModal.booking?.total || actionModal.booking?.total_amount || 0))}</strong></div><p>Refund eligibility and verified payment totals will be calculated by the server after cancellation. You can record a full or partial refund, or close the refund review without issuing one.</p></div>}
             {actionModal.type !== "delete" && <label className="ew-action-reason">Reason (required)<textarea required rows={4} placeholder={actionModal.type === "cancel" ? "Enter the cancellation reason..." : "Enter the reason for restricting this guest..."} value={actionForm.reason || ""} onChange={e => setActionForm(f => ({ ...f, reason: e.target.value }))} /></label>}
             {(actionModal.type === "delete" || actionModal.type === "blacklist") && <label className="ew-action-confirm"><input type="checkbox" checked={!!actionForm.acknowledge} onChange={e => setActionForm(f => ({ ...f, acknowledge: e.target.checked }))} /><span>I understand the consequences and confirm this action.</span></label>}
           </>}
           {modalError && <div role="alert" className="ew-action-error">{modalError}</div>}
         </div>
         <div className="ew-action-footer"><button type="button" className="ew-action-secondary" onClick={closeAction} disabled={busy}>Go back</button><button type="submit" disabled={busy} className={`ew-action-submit ew-action-${actionModal.type}`}>
-          {busy ? "Processing…" : { edit: "Save changes", cancel: "Cancel reservation", delete: "Archive booking", blacklist: "Blacklist guest" }[actionModal.type]}
+          {busy ? "Processing…" : { edit: "Save changes", cancel: "Cancel reservation", early: "Record early departure", delete: "Archive booking", blacklist: "Blacklist guest" }[actionModal.type]}
         </button></div>
       </form>
     </div>}
+    {historyModal && <div className="ew-action-backdrop" onMouseDown={e => { if(e.target===e.currentTarget) setHistoryModal(null); }}>
+      <div className="ew-action-modal" role="dialog" aria-modal="true" aria-label="Cancellation and refund history">
+        <div className="ew-action-header"><div><div className="ew-action-eyebrow">EWALEL COTTAGES · AUDIT</div><h2>Cancellation & Refund History</h2><p>Reservation #{historyModal.ref || historyModal.id}</p></div><button type="button" className="ew-action-close" onClick={() => setHistoryModal(null)}>×</button></div>
+        <div className="ew-action-body">
+          {modalError && <p role="alert" className="ew-action-error">{modalError}</p>}
+          {!historyData && !modalError && <p>Loading history…</p>}
+          {historyData && <><p><strong>Booking status:</strong> {historyData.booking_status}</p><h3>Administrative actions</h3>
+            {historyData.actions.length ? historyData.actions.map(a => <p key={a.id}><strong>{a.action.replaceAll('_',' ')}</strong> · {date(a.created_at)} · {a.actor}<br/>{a.reason}</p>) : <p>No administrative actions recorded.</p>}
+            <h3>Refund ledger</h3>{historyData.refunds.length ? historyData.refunds.map(r => <p key={r.id}><strong>KES {Number(r.amount).toLocaleString()}</strong> · {r.method} · {r.status} · {date(r.created_at)}<br/>{r.reference || 'No receipt recorded'} · {r.reason}</p>) : <p>No refunds recorded.</p>}</>}
+        </div><div className="ew-action-footer"><button type="button" className="ew-action-secondary" onClick={() => setHistoryModal(null)}>Close</button><button type="button" className="ew-action-submit" onClick={() => {const b=historyModal;setHistoryModal(null);openRefund(b);}}>Review refund</button></div>
+      </div></div>}
     {refundModal && <div className="ew-action-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setRefundModal(null) }}>
       <form className="ew-action-modal" role="dialog" aria-modal="true" aria-labelledby="ew-refund-title" onSubmit={submitRefund}>
         <div className="ew-action-header"><div><div className="ew-action-eyebrow">EWALEL COTTAGES · FINANCIAL REVIEW</div><h2 id="ew-refund-title">Refund processing</h2><p>Reservation #{refundModal.ref || refundModal.id}</p></div><button type="button" className="ew-action-close" onClick={() => setRefundModal(null)} disabled={busy}>×</button></div>
         <div className="ew-action-body">
+          {refundSummary && <section className="ew-refund-decision" aria-labelledby="ew-decision-heading">
+            <div className="ew-refund-section-head">
+              <div><span className="ew-refund-step">STEP 1 · ADMINISTRATOR REVIEW</span><h3 id="ew-decision-heading">Is a refund available?</h3><p>Choose the decision and record why it was made.</p></div>
+              {refundSummary.decisions?.[0] && <span className="ew-refund-saved-badge">Decision recorded</span>}
+            </div>
+            <div className="ew-refund-options" role="radiogroup" aria-label="Refund decision">
+              {[
+                ["available","Refund available","Approve a full or partial refund for processing"],
+                ["not_available","No refund","Record that no refund will be issued"],
+                ["review_later","Review later","Keep the refund decision pending"]
+              ].map(([value,label,description]) => <label key={value} className={`ew-refund-option ${refundDecision===value?"is-selected":""}`}>
+                <input type="radio" name="ew-refund-eligibility" value={value} checked={refundDecision===value} onChange={()=>setRefundDecision(value)} disabled={busy}/>
+                <span><strong>{label}</strong><small>{description}</small></span>
+              </label>)}
+            </div>
+            <label className="ew-refund-field">Decision reason <span className="ew-required">Required</span>
+              <textarea rows={3} maxLength={500} value={refundDecisionReason} onChange={e=>setRefundDecisionReason(e.target.value)} placeholder="Explain the decision for the audit history" />
+            </label>
+            <div className="ew-refund-decision-footer">
+              <button type="button" className="ew-action-submit" disabled={busy || refundDecisionReason.trim().length<3} onClick={saveRefundDecision}>{busy?"Saving…":"Save administrator decision"}</button>
+            </div>
+            {refundSummary.decisions?.[0] && <p className="ew-refund-latest"><strong>Last saved:</strong> {refundSummary.decisions[0].decision.replaceAll("_"," ")} · {refundSummary.decisions[0].reason}</p>}
+          </section>}
           {refundSummary ? <>
-            <div className="ew-refund-totals"><span>Revised booking total: <b>{fmt(refundSummary.booking_total)}</b></span><span>Verified payments: <b>{fmt(refundSummary.verified_paid)}</b></span><span>Already refunded: <b>{fmt(refundSummary.completed_refunds)}</b></span><span>Potential refund: <b>{fmt(refundSummary.potential_overpayment)}</b></span></div>
-            <p className="ew-action-info">Refunds are subject to the booking cancellation policy. Recording an M-PESA or card refund does not send money. Process the transfer through your approved payment provider first, then enter its verified reference.</p>
+            <div className="ew-refund-totals"><span>Revised booking total: <b>{fmt(refundSummary.booking_total)}</b></span><span>Verified payments: <b>{fmt(refundSummary.verified_paid)}</b></span><span>Already refunded: <b>{fmt(refundSummary.completed_refunds)}</b></span><span>Maximum available for review: <b>{fmt(refundSummary.maximum_refundable)}</b></span></div>
+            <div className="ew-refund-history"><h4>Refund history</h4>{(refundSummary.refunds || []).length ? refundSummary.refunds.map(r => <div className="ew-refund-history-row" key={r.id}><span>KES {Number(r.amount).toLocaleString()} · {r.method} · <strong>{r.status}</strong>{r.reference ? ` · ${r.reference}` : ""}</span>{r.status === "pending" && <button type="button" className="ew-action-secondary" disabled={busy} onClick={() => completeRefund(r.id)}>Verify receipt</button>}</div>) : <p>No previous refunds recorded.</p>}</div>
+            {refundDecision === "available" && refundSummary.decisions?.[0]?.decision === "available" ? <section className="ew-refund-payout">
+              <div className="ew-refund-section-head"><div><span className="ew-refund-step">STEP 2 · REFUND RECORD</span><h3>Record a pending refund</h3><p>No money is transferred by saving this form.</p></div></div>
+            <p className="ew-action-info">This creates a pending refund record only. Pay the guest separately using an approved provider, then verify the external receipt in the refund history. A completed stay requires post-stay approval.</p>
             <div className="ew-action-grid">
               <label>Refund amount (KES)<input required type="number" min="0.01" step="0.01" max={refundSummary.maximum_refundable} value={refundForm.amount} onChange={e => setRefundForm(f => ({ ...f, amount: e.target.value }))} /></label>
               <label>Refund method<select value={refundForm.method} onChange={e => setRefundForm(f => ({ ...f, method: e.target.value }))}><option value="mpesa">M-PESA</option><option value="cash">Cash</option><option value="card">Card</option><option value="bank">Bank transfer</option></select></label>
-              <label>Refund status<select value={refundForm.status} onChange={e => setRefundForm(f => ({ ...f, status: e.target.value }))}><option value="pending">Pending — not paid</option><option value="completed">Completed — externally verified</option></select></label>
-              <label>External transaction reference<input required={refundForm.status === "completed"} value={refundForm.reference} placeholder="Receipt / transaction ID" onChange={e => setRefundForm(f => ({ ...f, reference: e.target.value }))} /></label>
+              <p className="ew-refund-pending-note">Status: <strong>Pending — not yet paid</strong>. Add the external receipt only after the payment has actually been made.</p>
             </div>
+            <label className="ew-post-stay-approval"><input type="checkbox" checked={!!refundForm.post_stay_adjustment} onChange={e => setRefundForm(f => ({...f, post_stay_adjustment: e.target.checked}))} /> Post-stay financial adjustment (guest has already checked in/out)</label>
+            {refundForm.post_stay_adjustment && <label className="ew-action-reason">Administrator approval notes (minimum 10 characters)<textarea rows={2} required minLength={10} value={refundForm.approval_note || ""} onChange={e => setRefundForm(f => ({...f, approval_note: e.target.value}))} /></label>}
             <label className="ew-action-reason">Reason / approval notes<textarea required rows={3} value={refundForm.reason} onChange={e => setRefundForm(f => ({ ...f, reason: e.target.value }))} /></label>
-          </> : <p>Loading verified payment information…</p>}
+            </section> : <p className="ew-refund-guidance">To enter refund payment details, select <strong>Refund available</strong> and save the administrator decision above. No refund is issued for No refund or Review later.</p>}
+          </> : !modalError ? <p>Loading verified payment information…</p> : <div className="ew-action-info">
+            <p>Refund information could not be loaded. The booking cancellation is not reversed by this error.</p>
+            <button type="button" className="ew-action-secondary" disabled={busy}
+              onClick={() => openRefund(refundModal)}>Retry loading refund details</button>
+            <p>You may close this window and reopen Refund Review from the booking history after the API is available.</p>
+          </div>}
           {modalError && <div role="alert" className="ew-action-error">{modalError}</div>}
         </div>
-        <div className="ew-action-footer"><button type="button" className="ew-action-secondary" onClick={() => setRefundModal(null)} disabled={busy}>Close / Later</button><button type="submit" className="ew-action-submit" disabled={busy || !refundSummary || Number(refundForm.amount) <= 0}>{busy ? "Saving…" : "Record refund"}</button></div>
+        <div className="ew-action-footer"><button type="button" className="ew-action-secondary" onClick={() => setRefundModal(null)} disabled={busy}>Close</button><button type="submit" className="ew-action-submit" disabled={busy || !refundSummary || refundDecision !== "available" || refundSummary.decisions?.[0]?.decision !== "available" || Number(refundForm.amount) <= 0}>{busy ? "Saving…" : "Record refund"}</button></div>
       </form>
     </div>}
     {addOpen && <div role="dialog" aria-modal="true" aria-label="Add customer" style={{ position: "fixed", inset: 0, background: "#0009", zIndex: 9999, display: "grid", placeItems: "center", padding: 15 }}><form onSubmit={addCustomer} style={{ ...card, width: "min(100%,480px)", boxShadow: "0 20px 60px #0004" }}><h2>Add Customer</h2><p className="crm-muted">Create a customer contact record without creating a booking.</p>{[["name", "Full name"], ["phone", "Phone"], ["email", "Email"]].map(([k, l]) => <label key={k} style={{ display: "block", marginBottom: 12 }}>{l}<input className="crm-input" type={k === "email" ? "email" : "text"} required={k === "name"} value={newCustomer[k]} onChange={e => setNewCustomer({ ...newCustomer, [k]: e.target.value })} /></label>)}<div className="crm-actions"><button type="submit" disabled={busy} className="crm-btn crm-primary">Save Customer</button><button type="button" className="crm-btn" onClick={() => setAddOpen(false)}>Cancel</button></div></form></div>}
