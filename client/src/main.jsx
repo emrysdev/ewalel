@@ -208,16 +208,16 @@ function App() {
   // LOAD ADMIN DATA
   // ===================================================
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ throwOnError = false } = {}) => {
     if (!token) return;
 
     try {
       const [c, m, b, p, f] = await Promise.all([
-        api("/cottages"),
-        api("/admin/maintenance", {}, token),
-        api("/admin/bookings", {}, token),
-        api("/admin/payments", {}, token),
-        api("/admin/finance", {}, token),
+        api("/cottages", { cache: "no-store" }),
+        api("/admin/maintenance", { cache: "no-store" }, token),
+        api("/admin/bookings", { cache: "no-store" }, token),
+        api("/admin/payments", { cache: "no-store" }, token),
+        api("/admin/finance", { cache: "no-store" }, token),
       ]);
 
       setCottages(Array.isArray(c) ? c : []);
@@ -236,6 +236,7 @@ function App() {
       }
 
       setError(err.message);
+      if (throwOnError) throw err;
     }
   }, [token]);
 
@@ -2109,6 +2110,22 @@ function ReservationsPanel({ sub, cottages = [], bookings, payments = [], token,
   const [receiptError, setReceiptError] = useState("");
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [reviewBookingId, setReviewBookingId] = useState("");
+  const [refreshingBookings, setRefreshingBookings] = useState(false);
+
+  async function handleRefreshBookings() {
+    if (refreshingBookings) return;
+    setRefreshingBookings(true);
+    setError("");
+    setNotice("");
+    try {
+      await refresh({ throwOnError: true });
+      setNotice("Bookings updated successfully.");
+    } catch (err) {
+      setError(err.message || "Unable to refresh bookings.");
+    } finally {
+      setRefreshingBookings(false);
+    }
+  }
 
   const canCancel = b => ["awaiting_payment", "payment_submitted"].includes(b?.status);
 
@@ -2366,9 +2383,13 @@ function ReservationsPanel({ sub, cottages = [], bookings, payments = [], token,
   };
 
   return <section className="ew-booking-dashboard">
+    <style>{`@keyframes ew-refresh-rotate { to { transform: rotate(360deg); } } .ew-refresh-spin { animation: ew-refresh-rotate 1s linear infinite; } .ew-hero-button:disabled { opacity: .65; cursor: wait; }`}</style>
     <div className="ew-booking-hero">
       <div><div className="ew-hero-kicker">EWALel COTTAGES · RESERVATIONS</div><h1>Bookings Dashboard</h1><p>Manage reservations, track payments, and monitor guest stays.</p></div>
-      <button type="button" className="ew-hero-button" onClick={() => { setSearch(""); setStatusFilter("All"); refresh(); }}><RefreshCw size={17} /> Refresh bookings</button>
+      <button type="button" className="ew-hero-button" onClick={handleRefreshBookings} disabled={refreshingBookings} aria-busy={refreshingBookings}>
+        <RefreshCw size={17} className={refreshingBookings ? "ew-refresh-spin" : ""} />
+        {refreshingBookings ? "Refreshing..." : "Refresh bookings"}
+      </button>
     </div>
     <div className="ew-metrics">
       {[
