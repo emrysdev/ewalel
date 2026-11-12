@@ -13,12 +13,15 @@ import "./CottageManagement.css";
 // import "./PropertyStudio.css";
 
 
-// Use the Express backend locally and the current website in production.
+// API stays on the configured backend; uploads can use a separate image host.
 const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const BASE = (
-  isLocal
-    ? import.meta.env.VITE_API_URL || "http://localhost:4000"
-    : window.location.origin
+  import.meta.env.VITE_API_URL ||
+  (isLocal ? "http://localhost:4000" : window.location.origin)
+).replace(/\/$/, "");
+const IMAGE_BASE = (
+  import.meta.env.VITE_IMAGE_URL ||
+  (isLocal ? BASE : "https://robust-generosity-production-7f17.up.railway.app")
 ).replace(/\/$/, "");
 
 
@@ -28,22 +31,21 @@ function imageUrl(url) {
   const value = String(url).trim();
   if (!value) return "";
   if (/^(data:|blob:)/i.test(value)) return value;
-
   if (/^https?:\/\//i.test(value)) {
     try {
       const parsed = new URL(value);
-      // Old saved local URLs should use the active backend instead.
+      if (parsed.pathname.startsWith("/uploads/")) {
+        return `${IMAGE_BASE}${parsed.pathname}${parsed.search}`;
+      }
       if (["localhost", "127.0.0.1"].includes(parsed.hostname)) {
         return `${BASE}${parsed.pathname}${parsed.search}`;
       }
-    } catch {
-      return value;
-    }
+    } catch { return value; }
     return value;
   }
-
   const path = `/${value.replace(/^\/+/, "")}`;
   if (path.startsWith("/images/")) return path;
+  if (path.startsWith("/uploads/")) return `${IMAGE_BASE}${path}`;
   return `${BASE}${path}`;
 }
 

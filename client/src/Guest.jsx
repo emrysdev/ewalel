@@ -22,8 +22,17 @@ import {
 } from "lucide-react";
 import "./guest.css";
 
+const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const API = (
-  import.meta.env.VITE_API_URL || "http://localhost:4001"
+  import.meta.env.VITE_API_URL ||
+  (isLocal ? "http://localhost:4000" : window.location.origin)
+).replace(/\/$/, "");
+
+// Uploaded photographs are stored on Railway's persistent volume.
+// Override VITE_IMAGE_URL if the image-serving domain changes.
+const IMAGE_BASE = (
+  import.meta.env.VITE_IMAGE_URL ||
+  (isLocal ? API : "https://robust-generosity-production-7f17.up.railway.app")
 ).replace(/\/$/, "");
 
 
@@ -105,9 +114,23 @@ function CopyNumber({ label, number }) {
 
 function imageUrl(value) {
   if (!value) return "";
-  if (/^(https?:|data:|blob:)/i.test(value)) return value;
-  if (value.startsWith("/uploads/")) return `${API}${value}`;
-  return value.startsWith("/") ? value : `/${value}`;
+  const raw = String(value).trim();
+  if (!raw) return "";
+  if (/^(data:|blob:)/i.test(raw)) return raw;
+  let path = raw;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      // Repoint old upload URLs (including www and localhost) to image storage.
+      if (url.pathname.startsWith("/uploads/")) {
+        return `${IMAGE_BASE}${url.pathname}${url.search}`;
+      }
+      return raw;
+    } catch { return raw; }
+  }
+  if (!path.startsWith("/")) path = `/${path}`;
+  if (path.startsWith("/uploads/")) return `${IMAGE_BASE}${path}`;
+  return path;
 }
 
 // Guest-facing gallery. Uses public photos only; never calls admin endpoints.
