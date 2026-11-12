@@ -355,20 +355,56 @@ app.use(
 
 
 
+// const uploadPhotos = multer({
+//   storage: multer.memoryStorage(),
+//   limits: {
+//     files: 10,
+//     fileSize: 5 * 1024 * 1024
+//   },
+//   fileFilter(req, file, cb) {
+//     if (!["image/jpeg", "image/png", "image/webp"]
+//       .includes(file.mimetype)) {
+//       return cb(new Error("Only JPG, PNG and WebP images are allowed"));
+//     }
+//     cb(null, true);
+//   }
+// }).array("photos", 10);
+
+
+const allowedImageTypes = [
+  "image/jpeg",       // JPG and JPEG
+  "image/png",        // PNG
+  "image/webp",       // WebP
+  "image/gif",        // GIF
+  "image/avif",       // AVIF
+  "image/tiff",       // TIFF
+  "image/bmp",        // BMP
+  "image/heic",       // HEIC
+  "image/heif"        // HEIF
+];
+
 const uploadPhotos = multer({
   storage: multer.memoryStorage(),
+
   limits: {
     files: 10,
-    fileSize: 5 * 1024 * 1024
+    fileSize: 10 * 1024 * 1024
   },
+
   fileFilter(req, file, cb) {
-    if (!["image/jpeg", "image/png", "image/webp"]
-      .includes(file.mimetype)) {
-      return cb(new Error("Only JPG, PNG and WebP images are allowed"));
+    if (!allowedImageTypes.includes(file.mimetype)) {
+      return cb(
+        new Error(
+          "Unsupported image format. Please upload JPG, JPEG, PNG, WebP, GIF, AVIF, TIFF, BMP, HEIC or HEIF."
+        )
+      );
     }
+
     cb(null, true);
   }
 }).array("photos", 10);
+
+
 
 function photoUrl(filename) {
   return `/uploads/cottages/${filename}`;
@@ -747,41 +783,55 @@ app.post(
     let committed = false;
 
     try {
-      for (const file of req.files) {
-        const image = sharp(file.buffer, {
-          limitInputPixels: 25000000
-        });
+      
+for (const file of req.files) {
+  const image = sharp(file.buffer, {
+    limitInputPixels: 25000000,
+    animated: false
+  });
 
-        const metadata = await image.metadata();
+  const metadata = await image.metadata();
 
-        if (!["jpeg", "png", "webp"].includes(metadata.format)) {
-          throw new Error("Invalid image format");
-        }
+  const allowedFormats = [
+    "jpeg",
+    "png",
+    "webp",
+    "gif",
+    "avif",
+    "tiff",
+    "heif"
+  ];
 
-        const filename = `${crypto.randomUUID()}.webp`;
+  if (!allowedFormats.includes(metadata.format)) {
+    throw new Error(
+      `Unsupported image format: ${metadata.format || "unknown"}`
+    );
+  }
 
-        const buffer = await image
-          .rotate()
-          .resize({
-            width: 1800,
-            height: 1800,
-            fit: "inside",
-            withoutEnlargement: true
-          })
-          .webp({
-            quality: 85
-          })
-          .toBuffer();
+  const filename = `${crypto.randomUUID()}.webp`;
 
-        await fs.writeFile(
-          path.join(cottageUploadDir, filename),
-          buffer, {
-            flag: "wx"
-          }
-        );
+  const buffer = await image
+    .rotate()
+    .resize({
+      width: 1800,
+      height: 1800,
+      fit: "inside",
+      withoutEnlargement: true
+    })
+    .webp({
+      quality: 85,
+      effort: 4
+    })
+    .toBuffer();
+    await fs.writeFile(
+    path.join(cottageUploadDir, filename),
+    buffer,
+    { flag: "wx" }
+  );
 
-        savedFiles.push(photoUrl(filename));
-      }
+  savedFiles.push(photoUrl(filename));
+}
+
 
       const conn = await pool.getConnection();
 
