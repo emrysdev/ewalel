@@ -15,6 +15,7 @@ import { createRoot } from "react-dom/client";
 
 import {
   LayoutDashboard,
+  Bell,
   CalendarDays,
   House,
   Wallet,
@@ -190,6 +191,45 @@ function App() {
   const [records, setRecords] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [payments, setPayments] = useState([]);
+
+  // Browser-local read state. For multi-admin persistence, add server-side notifications.
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [readNotificationIds, setReadNotificationIds] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("ewalel_admin_read_notifications") || "[]"); }
+    catch { return []; }
+  });
+  useEffect(() => {
+    localStorage.setItem("ewalel_admin_read_notifications", JSON.stringify(readNotificationIds.slice(-1000)));
+  }, [readNotificationIds]);
+
+  const notifications = [
+    ...bookings.flatMap(b => {
+      const id = b.id ?? b.booking_id;
+      if (id == null) return [];
+      const status = String(b.status || "").toLowerCase();
+      const guest = b.guest_name || b.name || `Booking #${id}`;
+      const items = [{ id: `booking:${id}`, title: "Reservation received", detail: `${guest} · Booking #${id}`, section: "Reservations", sub: "Bookings", date: b.created_at }];
+      if (status === "cancelled") items.push({ id: `cancelled:${id}`, title: "Booking cancelled", detail: `${guest} · Booking #${id}`, section: "Reservations", sub: "Bookings", date: b.updated_at || b.created_at });
+      if (status === "confirmed") items.push({ id: `confirmed:${id}`, title: "Booking confirmed", detail: `${guest} · Booking #${id}`, section: "Reservations", sub: "Bookings", date: b.updated_at || b.created_at });
+      if (bookingDay(b.check_in) === kenyaDay() && status !== "cancelled") items.push({ id: `arrival:${id}:${kenyaDay()}`, title: "Guest arrival today", detail: `${guest} · Booking #${id}`, section: "Reservations", sub: "Bookings", date: b.check_in });
+      if (bookingDay(b.check_out) === kenyaDay() && status !== "cancelled") items.push({ id: `departure:${id}:${kenyaDay()}`, title: "Guest departure today", detail: `${guest} · Booking #${id}`, section: "Reservations", sub: "Bookings", date: b.check_out });
+      return items;
+    }),
+    ...payments.filter(p => p.id != null).map(p => ({
+      id: `payment:${p.id}:${p.status || "unknown"}`,
+      title: String(p.status).toLowerCase() === "completed" ? "Payment recorded as completed" : "Payment requires review",
+      detail: `${String(p.method || "Payment").toUpperCase()} · ${money(p.amount)} · Booking #${p.booking_id || "—"}`,
+      section: "Finance", sub: "Revenue & payments", date: p.created_at
+    })),
+    ...records.filter(r => r.id != null && ["scheduled", "in_progress"].includes(r.status)).map(r => ({
+      id: `maintenance:${r.id}:${r.status}`,
+      title: "Maintenance work pending", detail: r.task || `Maintenance #${r.id}`,
+      section: "Maintenance", sub: "Maintenance", date: r.created_at || r.scheduled_date
+    }))
+  ].sort((a, b) => (Date.parse(b.date || "") || 0) - (Date.parse(a.date || "") || 0)).slice(0, 100);
+  const unreadNotifications = notifications.filter(n => !readNotificationIds.includes(n.id)).length;
+  const markNotificationRead = id => setReadNotificationIds(previous => previous.includes(id) ? previous : [...previous, id]);
+
 
   const [finance, setFinance] = useState({
     revenue: 0,
@@ -480,6 +520,28 @@ function App() {
               <span className="demo">
                 Ewalel Management System
               </span>
+
+              <div className="ew-notification-wrap">
+                <button type="button" className="ew-notification-bell" aria-label={`Notifications, ${unreadNotifications} unread`}
+                  aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(v => !v)}>
+                  <Bell size={20} />
+                  {unreadNotifications > 0 && <span className="ew-notification-count">{unreadNotifications > 99 ? "99+" : unreadNotifications}</span>}
+                </button>
+                {notificationsOpen && <div className="ew-notification-panel" role="region" aria-label="Admin notifications">
+                  <div className="ew-notification-heading"><strong>Notifications</strong>
+                    <button type="button" onClick={() => setReadNotificationIds(previous => [...new Set([...previous, ...notifications.map(n => n.id)])])}>Mark all read</button>
+                  </div>
+                  <div className="ew-notification-list">
+                    {notifications.length === 0 ? <p className="ew-notification-empty">No notifications yet.</p> : notifications.map(n =>
+                      <button type="button" key={n.id} className={`ew-notification-item ${readNotificationIds.includes(n.id) ? "is-read" : "is-unread"}`}
+                        onClick={() => { markNotificationRead(n.id); setTab(n.section); setSub(n.sub); setNotificationsOpen(false); setMobile(false); }}>
+                        <span className="ew-notification-title">{!readNotificationIds.includes(n.id) && <span className="ew-notification-dot" />}{n.title}</span>
+                        <span className="ew-notification-detail">{n.detail}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>}
+              </div>
 
               <button
                 className="secondary"
@@ -2549,6 +2611,27 @@ function ReservationsPanel({ sub, cottages = [], bookings, payments = [], token,
 
   </section>;
 }
+
+
+// Notification styling is scoped to the admin header and does not change public booking pages.
+const adminNotificationStyles = document.createElement("style");
+adminNotificationStyles.textContent = `
+.ew-notification-wrap{position:relative;display:flex;align-items:center;z-index:30}
+.ew-notification-bell{position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid #d4e6e1;border-radius:12px;background:#fff;color:#064e50;cursor:pointer}
+.ew-notification-count{position:absolute;top:-7px;right:-8px;background:#b73539;color:white;border-radius:999px;padding:2px 5px;font-size:10px;font-weight:700;min-width:17px;text-align:center}
+.ew-notification-panel{position:absolute;right:0;top:calc(100% + 12px);width:min(370px,calc(100vw - 28px));max-height:440px;overflow:hidden;background:#fff;color:#123e40;border:1px solid #dce9e5;border-radius:16px;box-shadow:0 12px 35px #002c2c33;z-index:100}
+.ew-notification-heading{display:flex;justify-content:space-between;align-items:center;padding:15px 16px;border-bottom:1px solid #e5eeeb}
+.ew-notification-heading button{border:0;background:none;color:#08776c;cursor:pointer;font-size:12px}
+.ew-notification-list{max-height:370px;overflow-y:auto}
+.ew-notification-item{display:flex;flex-direction:column;gap:5px;width:100%;text-align:left;padding:13px 16px;border:0;border-bottom:1px solid #edf2f0;background:white;color:#153f42;cursor:pointer}
+.ew-notification-item.is-unread{background:#eff9f5}
+.ew-notification-item:hover{background:#e4f3ed}
+.ew-notification-title{font-size:13px;font-weight:750;display:flex;align-items:center;gap:7px}
+.ew-notification-dot{width:7px;height:7px;border-radius:50%;background:#008f7d;flex-shrink:0}
+.ew-notification-detail{font-size:12px;color:#5e777a;line-height:1.5}
+.ew-notification-empty{padding:20px;font-size:13px;color:#647e80}
+`;
+document.head.appendChild(adminNotificationStyles);
 
 // =====================================================
 // ROUTE PUBLIC WEBSITE AND ADMIN DASHBOARD
