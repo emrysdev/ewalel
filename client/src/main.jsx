@@ -143,6 +143,28 @@ const emptyPayment = {
   status: "pending",
 };
 
+
+// Stay and refund rules use Kenya's calendar date, not the administrator's timezone.
+const kenyaDay = (instant = Date.now()) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(new Date(instant));
+  const part = name => parts.find(p => p.type === name)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+};
+const bookingDay = value => String(value || "").slice(0, 10);
+const futureRefundEligible = booking => bookingDay(booking?.check_in) > kenyaDay();
+const checkInToday = booking => bookingDay(booking?.check_in) === kenyaDay();
+const completionDelayMs = 48 * 60 * 60 * 1000;
+const validInstant = value => {
+  if (!value) return null;
+  // Reject ambiguous timezone-free timestamps: the server should return ISO with Z or an offset.
+  const raw = String(value);
+  if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(raw)) return null;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : null;
+};
+
 // =====================================================
 // ADMIN APPLICATION
 // =====================================================
@@ -1394,6 +1416,50 @@ function GuestBalancePayment({ booking, payments, receipts, token, refresh, relo
   </div>;
 }
 
+// Booking activity is read from the server audit trail, not estimated from status.
+function BookingActivityList({ booking, token }) {
+  const [history, setHistory] = useState(null);
+  const [loadError, setLoadError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    const id = booking?.id ?? booking?.booking_id ?? booking?.bookingId;
+    if (id == null) return;
+    setHistory(null);
+    setLoadError(false);
+    api(`/admin/bookings/${encodeURIComponent(id)}/action-history`, {}, token)
+      .then(data => { if (active) setHistory(data); })
+      .catch(() => { if (active) setLoadError(true); });
+    return () => { active = false; };
+  }, [booking?.id, booking?.booking_id, booking?.bookingId, token, booking?.status, booking?.updated_at]);
+
+  if (loadError) return <p className="ew-activity-unavailable">Activity history unavailable</p>;
+  if (!history) return <p className="ew-activity-unavailable">Loading booking activity…</p>;
+  const actions = Array.isArray(history.actions) ? history.actions : [];
+  const refunds = Array.isArray(history.refunds) ? history.refunds : [];
+  const actionName = a => String(a.action || a.action_type || a.type || "").toLowerCase();
+  const count = pattern => actions.filter(a => pattern.test(actionName(a))).length;
+  const activity = [
+    { label: "Cancellations", value: count(/cancel/), type: "cancelled" },
+    { label: "Refunds", value: refunds.length, type: "refunded" },
+    { label: "Deletions", value: count(/delet|archiv/), type: "deleted" },
+    { label: "Edits", value: count(/edit|updat|amend/), type: "edited" },
+  ];
+  return <><style>{`
+    .ew-booking-activity { display:flex; flex-direction:column; align-items:flex-start; gap:7px; margin-top:12px; }
+    .ew-booking-activity-row { display:flex; align-items:center; gap:9px; font-size:13px; line-height:1.5; font-weight:600; }
+    .ew-booking-activity-row strong { font-weight:800; }
+    .ew-booking-activity-row.is-cancelled { color:#b46c12; }
+    .ew-booking-activity-row.is-refunded { color:#008b7b; }
+    .ew-booking-activity-row.is-deleted { color:#c93645; }
+    .ew-booking-activity-row.is-edited { color:#1769b3; }
+    .ew-activity-unavailable { margin:9px 0 0; font-size:12px; color:#668086; }
+  `}</style><div className="ew-booking-activity" aria-label="Booking activity history">
+    {activity.map(item => <div key={item.type} className={`ew-booking-activity-row is-${item.type}`}>
+      <span>{item.label}</span><strong>{item.value}</strong>
+    </div>)}
+  </div></>;
+}
+
 function CustomerRetention({ bookings, payments, cottages, token, onError, onNotice, refresh }) {
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState("all");
@@ -1408,32 +1474,42 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   const [bookingFlags, setBookingFlags] = useState({ blacklist: [], archived: [] });
   const [archivedBookings, setArchivedBookings] = useState([]);
 
-  const stayStatus = (booking) => {
-    // Support both the crm_guest_stays response and booking_stay_events response.
-    const related = events.filter((s) =>
-      (s.booking_id != null && String(s.booking_id) === String(booking.id)) ||
-      (s.booking_reference != null && booking.ref != null &&
-        String(s.booking_reference) === String(booking.ref))
-    );
-
-    // A current stay-status record is authoritative when present.
-    const direct = related.find((s) =>
-      ["not_checked_in", "checked_in", "checked_out"].includes(s.stay_status)
-    );
-    if (direct) return direct.stay_status;
-
-    // Some backend versions return an event log rather than stay_status.
-    const latest = [...related].sort((a, b) => {
-      const dateDiff = new Date(b.created_at || 0) - new Date(a.created_at || 0);
-      return dateDiff || Number(b.id || 0) - Number(a.id || 0);
-    })[0];
-    if (latest?.event_type === "check_out") return "checked_out";
-    if (latest?.event_type === "check_in") return "checked_in";
-
-    // Other backend versions store the stay state on the booking itself.
-    if (["checked_in", "checked_out"].includes(booking.status)) {
-      return booking.status;
-    }
+  // Re-evaluate at least once per minute so a checked-out stay completes after 48 hours.
+  const [stayClock, setStayClock] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setStayClock(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+  const matchingStayRecords = booking => events.filter(s =>
+    (s.booking_id != null && String(s.booking_id) === String(booking.id)) ||
+    (s.booking_reference != null && booking.ref != null && String(s.booking_reference) === String(booking.ref))
+  );
+  const stayRecord = booking => [...matchingStayRecords(booking)].sort((a, b) =>
+    (validInstant(b.updated_at) || validInstant(b.created_at) || 0) -
+    (validInstant(a.updated_at) || validInstant(a.created_at) || 0)
+  )[0];
+  const checkoutInstant = booking => {
+    const rows = matchingStayRecords(booking);
+    const candidates = [booking.actual_check_out, booking.actual_checkout,
+      ...rows.map(r => r.actual_check_out || r.actual_checkout),
+      ...rows.filter(r => r.event_type === "check_out").map(r => r.created_at)];
+    const valid = candidates.map(validInstant).filter(v => v != null);
+    return valid.length ? Math.max(...valid) : null;
+  };
+  const stayStatus = booking => {
+    const checkout = checkoutInstant(booking);
+    if (checkout != null) return stayClock >= checkout + completionDelayMs ? "completed" : "checked_out";
+    const rows = matchingStayRecords(booking);
+    const direct = stayRecord(booking)?.stay_status;
+    if (direct === "completed") return "completed";
+    if (direct === "checked_out") return "checked_out"; // Missing timestamp: do not guess completion.
+    if (direct === "checked_in" || direct === "in_stay") return "in_stay";
+    const latestEvent = [...rows].filter(r => r.event_type).sort((a,b) =>
+      (validInstant(b.created_at) || 0) - (validInstant(a.created_at) || 0))[0];
+    if (latestEvent?.event_type === "check_out") return "checked_out";
+    if (latestEvent?.event_type === "check_in") return "in_stay";
+    if (["checked_in", "in_stay"].includes(booking.status)) return "in_stay";
+    if (booking.status === "checked_out") return "checked_out";
     return "not_checked_in";
   };
 
@@ -1452,7 +1528,7 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   const [refundSummary, setRefundSummary] = useState(null);
   const [refundDecision, setRefundDecision] = useState("review_later");
   const [refundDecisionReason, setRefundDecisionReason] = useState("");
-  const [refundForm, setRefundForm] = useState({ amount: "", method: "mpesa", status: "pending", reference: "", reason: "", post_stay_adjustment: false, approval_note: "" });
+  const [refundForm, setRefundForm] = useState({ amount: "", method: "mpesa", status: "pending", reference: "", reason: "", post_stay_adjustment: false, approval_note: "", cash_confirmed: false });
   const bookingApiId = (booking) => booking?.id ?? booking?.booking_id ?? booking?.bookingId;
   async function openHistory(booking) {
     setHistoryModal(booking); setHistoryData(null); setModalError('');
@@ -1462,6 +1538,7 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
     } catch (err) { setModalError(err.message); }
   }
   async function openRefund(booking) {
+    if (!futureRefundEligible(booking)) { setModalError("Refunds are available only for future bookings, not arrivals today or past bookings."); onError("Refunds are available only for future bookings."); return; }
     const bookingId = bookingApiId(booking);
     if (bookingId == null || bookingId === "") { setModalError("This booking has no database ID. Refresh bookings and try again."); return; }
     setRefundDecision("review_later"); setRefundDecisionReason("");
@@ -1472,22 +1549,39 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
       setRefundDecision(summary.decisions?.[0]?.decision || "review_later");
       setRefundDecisionReason("");
       const postStay = stayStatus(booking) !== "not_checked_in";
-      setRefundForm({ amount: String(Math.max(0, postStay || summary.cancelled ? summary.maximum_refundable : summary.potential_overpayment)), method: "mpesa", status: "pending", reference: "", reason: postStay ? "Post-stay refund review" : "Booking amendment or cancellation", post_stay_adjustment: postStay, approval_note: "" });
+      setRefundForm({ amount: String(Math.max(0, postStay || summary.cancelled ? summary.maximum_refundable : summary.potential_overpayment)), method: "mpesa", status: "pending", reference: "", reason: postStay ? "Post-stay refund review" : "Booking amendment or cancellation", post_stay_adjustment: postStay, approval_note: "", cash_confirmed: false });
     } catch (err) { setModalError(err.message); }
   }
   async function submitRefund(e) {
+    if (!futureRefundEligible(refundModal)) { e.preventDefault(); setModalError("Refunds are only available for future bookings."); return; }
     e.preventDefault(); if (!refundModal || busy) return;
     if (refundDecision !== "available" || refundSummary?.decisions?.[0]?.decision !== "available") {
       setModalError("Save an administrator decision of 'Refund available' before recording a refund."); return;
     }
+    const amount = Number(refundForm.amount);
+    const maximum = Number(refundSummary?.maximum_refundable ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > maximum) {
+      setModalError("Enter a refund amount greater than zero and no more than the maximum available for review."); return;
+    }
+    if (!["mpesa", "card", "cash"].includes(refundForm.method)) {
+      setModalError("Select M-PESA, Card or Cash as the refund method."); return;
+    }
+    if (["mpesa", "card"].includes(refundForm.method) && !refundForm.reference?.trim()) {
+      setModalError("Enter the payment receipt or refund transaction reference for the selected method."); return;
+    }
+    if (refundForm.method === "cash" && !refundForm.cash_confirmed) {
+      setModalError("Confirm that the cash refund amount has been counted and acknowledged before saving."); return;
+    }
+    if (!refundForm.reason?.trim()) { setModalError("Enter a reason for this refund."); return; }
     setBusy(true); setModalError("");
     try {
-      await api(`/admin/bookings/${encodeURIComponent(bookingApiId(refundModal))}/refunds`, { method: "POST", body: JSON.stringify({ ...refundForm, amount: Number(refundForm.amount) }) }, token);
+      await api(`/admin/bookings/${encodeURIComponent(bookingApiId(refundModal))}/refunds`, { method: "POST", body: JSON.stringify({ ...refundForm, cash_confirmed: undefined, amount: Number(refundForm.amount) }) }, token);
       setRefundModal(null); setRefundSummary(null); await refresh(); await reloadExtra();
       onNotice("Refund recorded as pending. No money has been transferred.");
     } catch (err) { setModalError(err.message); } finally { setBusy(false); }
   }
   async function saveRefundDecision() {
+    if (!futureRefundEligible(refundModal)) { setModalError("Refund decisions are only available for future bookings."); return; }
     if (!refundModal || busy) return;
     if (refundDecisionReason.trim().length < 3) {
       setModalError("Enter a reason for the administrator's decision."); return;
@@ -1605,10 +1699,6 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   const fmt = n => "KES " + Number(n || 0).toLocaleString("en-KE", { maximumFractionDigits: 2 });
   const date = v => { if (!v) return "Not recorded"; const d = new Date(v); return Number.isNaN(+d) ? String(v).slice(0, 16) : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Nairobi" }); };
   // Actual stay timestamps are separate from scheduled reservation dates.
-  const stayRecord = (booking) => events.find(e =>
-    (e.booking_id != null && String(e.booking_id) === String(booking.id)) ||
-    (e.booking_reference != null && booking.ref != null && String(e.booking_reference) === String(booking.ref))
-  );
   const stayTime = (value) => {
     if (!value) return "Not recorded";
     const d = new Date(value);
@@ -1627,10 +1717,10 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
     const ids = new Set(bs.map(b => String(b.id)));
     const ps = payments.filter(p => ids.has(String(p.booking_id)) && norm(p.status) === "completed");
     const total = ps.reduce((n, p) => n + Number(p.amount || 0), 0);
-    const completed = bs.filter(b => stayStatus(b) === "checked_out").length;
+    const completed = bs.filter(b => stayStatus(b) === "completed").length;
     const cancellations = bs.filter(b => b.status === "cancelled").length;
-    const next = bs.filter(b => b.status === "confirmed" && stayStatus(b) !== "checked_out" && new Date(b.check_out) >= new Date()).sort((a, b) => new Date(a.check_in) - new Date(b.check_in))[0];
-    const lastStay = bs.filter(b => stayStatus(b) === "checked_out").sort((a, b) => new Date(b.check_out) - new Date(a.check_out))[0];
+    const next = bs.filter(b => b.status === "confirmed" && !["checked_out", "completed"].includes(stayStatus(b)) && new Date(b.check_out) >= new Date()).sort((a, b) => new Date(a.check_in) - new Date(b.check_in))[0];
+    const lastStay = bs.filter(b => stayStatus(b) === "completed").sort((a, b) => new Date(b.check_out) - new Date(a.check_out))[0];
     const inactive = Boolean(lastStay && !next && (Date.now() - new Date(lastStay.check_out).getTime()) > 180 * 86400000);
     return { ...g, bookings: bs, total, completed, cancellations, next, lastStay, inactive, first: bs.at(-1)?.created_at, last: bs[0]?.created_at, segment: bs.length >= 2 ? "Returning" : "New" };
   });
@@ -1638,8 +1728,8 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
     if (segment === "returning" && g.bookings.length < 2) return false;
     if (segment === "new" && g.bookings.length !== 1) return false;
     if (segment === "inactive" && !g.inactive) return false;
-    if (segment === "in-house" && !g.bookings.some(b => stayStatus(b) === "checked_in")) return false;
-    if (statusFilter !== "all" && !g.bookings.some(b => ["checked_in", "checked_out"].includes(statusFilter) ? stayStatus(b) === statusFilter : b.status === statusFilter)) return false;
+    if (segment === "in-house" && !g.bookings.some(b => stayStatus(b) === "in_stay")) return false;
+    if (statusFilter !== "all" && !g.bookings.some(b => ["checked_in", "in_stay", "checked_out", "completed"].includes(statusFilter) ? stayStatus(b) === statusFilter : b.status === statusFilter)) return false;
     if (period !== "all" && !g.bookings.some(b => new Date(b.created_at) > new Date(Date.now() - Number(period) * 86400000))) return false;
     return [g.name, g.phone, g.email, ...g.bookings.map(b => b.ref || b.id)].join(" ").toLowerCase().includes(query.toLowerCase());
   });
@@ -1653,7 +1743,7 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   });
   const archivedIds = new Set((bookingFlags.archived || []).map(x => String(x.booking_id)));
   useEffect(() => { setPref({ preferred_cottage: customerRow?.preferred_cottage || "", special_requests: customerRow?.special_requests || "", marketing_consent: Boolean(customerRow?.marketing_consent) }); }, [customerRow?.id, customerRow?.preferred_cottage, customerRow?.special_requests, customerRow?.marketing_consent]);
-  async function stayAction(b, action) { if (!window.confirm(`${action === "check-in" ? "Check in" : "Check out"} ${current?.name} for booking ${b.ref || b.id}?`)) return; setBusy(true); try { await api(`/admin/bookings/${encodeURIComponent(b.id)}/${action}`, { method: "POST" }, token); await refresh(); await reloadExtra(); onNotice("Guest stay updated successfully."); } catch (e) { onError(e.message); } finally { setBusy(false); } }
+  async function stayAction(b, action) { if (action === "check-in" && !checkInToday(b)) { onError("Check-in is allowed only on the scheduled arrival date in Kenya."); return; } if (!window.confirm(`${action === "check-in" ? "Check in" : "Check out"} ${current?.name} for booking ${b.ref || b.id}?`)) return; setBusy(true); try { await api(`/admin/bookings/${encodeURIComponent(b.id)}/${action}`, { method: "POST" }, token); await refresh(); await reloadExtra(); onNotice("Guest stay updated successfully."); } catch (e) { onError(e.message); } finally { setBusy(false); } }
   async function addCustomer(e) { e.preventDefault(); setBusy(true); try { await api("/admin/customers", { method: "POST", body: JSON.stringify(newCustomer) }, token); await reloadExtra(); setAddOpen(false); setNewCustomer({ name: "", phone: "", email: "" }); onNotice("Customer added."); } catch (e) { onError(e.message); } finally { setBusy(false); } }
   async function ensureCustomer() { if (customerRow) return customerRow.id; const r = await api("/admin/customers", { method: "POST", body: JSON.stringify({ name: current.name, phone: current.phone, email: current.email }) }, token); return r.id; }
   async function saveNote(e) { e.preventDefault(); if (!noteText.trim()) return; setBusy(true); try { const id = await ensureCustomer(); await api("/admin/customer-notes", { method: "POST", body: JSON.stringify({ customer_id: id, note: noteText.trim() }) }, token); setNoteText(""); await reloadExtra(); onNotice("Customer note saved."); } catch (e) { onError(e.message); } finally { setBusy(false); } }
@@ -1664,6 +1754,11 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   const T = { green: ["#e9f7ef", "#c0e8cc", "#087444"], blue: ["#e9f1ff", "#bed5ff", "#235ea5"], purple: ["#f3eaff", "#dfc8fc", "#7641b2"], red: ["#ffeded", "#ffc9c9", "#b94040"], gold: ["#fff5e2", "#ffe0a2", "#a96a06"] };
   return <div className="ew-crm" style={{ width: "100%", maxWidth: 1720, margin: "0 auto", padding: "6px 0 25px", color: "#102d35" }}>
     <style>{`
+/* Stay status colors match the existing Ewalel dashboard. */
+.ew-stay-state-in_stay {color:#008b7b;}
+.ew-stay-state-checked_out {color:#a96a06;}
+.ew-stay-state-completed {color:#087444;}
+.ew-stay-state-not_checked_in {color:#235ea5;}
 /* Compact, pill-shaped booking actions. Keep all four on one row when space allows. */
 .ew-crm .crm-booking-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%;overflow:visible;}
 .ew-crm .crm-booking-actions .crm-btn{flex:0 0 auto;min-width:max-content;white-space:nowrap;border-radius:999px;padding:8px 13px;font-size:11px;line-height:1.25;font-weight:700;}
@@ -1678,7 +1773,7 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
         {/* <button className="crm-btn" onClick={() => setAddOpen(true)}>＋ Add Contact</button> */}
         {/* <button className="crm-btn" onClick={csv}>↓ Export (CSV)</button>` */}
         <button className="crm-btn" onClick={() => setInsights(v => !v)}>▥ Retention Insights</button></div></div>
-      <div className="crm-kpis">{stat("Total customers", profiles.length, T.green)}{stat("Total bookings", bookings.length, T.blue)}{stat("Completed stays", bookings.filter(b => stayStatus(b) === "checked_out").length, T.green)}{stat("Returning guests", `${profiles.filter(g => g.bookings.length >= 2).length} (${profiles.length ? Math.round(100 * profiles.filter(g => g.bookings.length >= 2).length / profiles.length) : 0}%)`, T.purple)}{stat("Cancellations", bookings.filter(b => b.status === "cancelled").length, T.red)}{stat("Verified spending", fmt(profiles.reduce((n, g) => n + g.total, 0)), T.gold)}</div>
+      <div className="crm-kpis">{stat("Total customers", profiles.length, T.green)}{stat("Total bookings", bookings.length, T.blue)}{stat("Completed stays", bookings.filter(b => stayStatus(b) === "completed").length, T.green)}{stat("Returning guests", `${profiles.filter(g => g.bookings.length >= 2).length} (${profiles.length ? Math.round(100 * profiles.filter(g => g.bookings.length >= 2).length / profiles.length) : 0}%)`, T.purple)}{stat("Cancellations", bookings.filter(b => b.status === "cancelled").length, T.red)}{stat("Verified spending", fmt(profiles.reduce((n, g) => n + g.total, 0)), T.gold)}</div>
       {insights && <p style={{ marginTop: 16, color: "#385c62" }}>Returning customer rate is based on multiple bookings linked by phone or email. Spending counts completed payments only. Use booking history to identify guests eligible for a consent-based follow-up.</p>}
     </div>
     <div className="crm-layout"><aside style={card}>
@@ -1732,8 +1827,9 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
                         {b.cottage_name || b.unit_id} · #{b.ref || b.id}
                       </strong>
                       <p style={{ margin: "12px 0 0" }}>
-                        {date(b.check_in)} – {date(b.check_out)}
+                        Stay status: <strong className={`ew-stay-state ew-stay-state-${status}`}>{(status === "in_stay" ? "In Stay" : status === "completed" ? "Completed" : status.replaceAll("_", " "))}</strong>
                       </p>
+                      <BookingActivityList booking={b} token={token} />
                     </div>
 
                     <div className="booking-status-column" style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "stretch", alignSelf: "start", marginTop: -12, minWidth: 0 }}>
@@ -1745,7 +1841,7 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
                         {edited && <span className="ew-stay-flag is-edited">Edited booking</span>}
                       </div>
                       <p style={{ margin: "2px 0", fontSize: 13, textAlign: "right" }}>
-                        Stay status: <strong>{status.replaceAll("_", " ")}</strong>
+                        {date(b.check_in)} – {date(b.check_out)}
                       </p>
                       <div className="guest-scheduled-times" style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", margin: 0 }}>
                         <div style={{ padding: 12, background: "#fff", border: "1px solid #dce7e2", borderRadius: 10 }}>
@@ -1763,15 +1859,17 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
                   </div>
 
 
-                  {canManageStay && status !== "checked_out" && b.status !== "confirmed" && (
+                  {canManageStay && !["checked_out", "completed"].includes(status) && b.status !== "confirmed" && (
                     <GuestBalancePayment booking={b} payments={payments} receipts={receipts} token={token} refresh={refresh} reloadExtra={reloadExtra} onError={onError} onNotice={onNotice} />
                   )}
 
                   {!canManageStay ? (
                     <p className="ew-stay-blocked">{cancelled ? "Booking cancelled — check-in and payment actions unavailable." : "Booking archived — check-in and payment actions unavailable."}</p>
-                  ) : status === "checked_out" ? (
-                    <span className="crm-chip">Stay Completed</span>
-                  ) : status !== "checked_in" && b.status !== "confirmed" ? (
+                  ) : ["checked_out", "completed"].includes(status) ? (
+                    <span className="crm-chip">{status === "completed" ? "Stay Completed" : "Checked Out · Completion pending (48 hours)"}</span>
+                  ) : status === "not_checked_in" && !checkInToday(b) ? (
+                    <p className="ew-stay-blocked">Check-in is only available on {date(b.check_in)} (Kenya time).</p>
+                  ) : status !== "in_stay" && b.status !== "confirmed" ? (
                     <p style={{ color: "#92520a", fontSize: 13, margin: "10px 0" }}>
                       Check-in unavailable: booking is {String(b.status || "pending").replaceAll("_", " ")}. Complete and verify the outstanding payment first.
                     </p>
@@ -1783,7 +1881,7 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
                       onClick={() =>
                         stayAction(
                           b,
-                          status === "checked_in"
+                          status === "in_stay"
                             ? "check-out"
                             : "check-in"
                         )
@@ -1791,7 +1889,7 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
                     >
                       {busy
                         ? "Saving…"
-                        : status === "checked_in"
+                        : status === "in_stay"
                           ? "Check Out Guest"
                           : "Check In Guest"}
                     </button>
@@ -1802,18 +1900,18 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
         </section>
 
         <div className="crm-tabs" style={{ marginBottom: 20 }}>{["Overview", "Bookings & Payments", "Activity & Notes", "Preferences", "Loyalty"].map(t => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>)}</div>
-        {tab === "Overview" && <div className="crm-grid"><section style={card}><h3>Customer Summary</h3>{[["First booking", date(current.first)], ["Latest booking", date(current.last)], ["Total bookings", current.bookings.length], ["Completed stays", current.completed], ["Cancellations", current.cancellations], ["Verified spending", fmt(current.total)], ["Last stay", date(current.lastStay?.check_out)]].map(([a, b]) => <div className="crm-detail" key={a}><span>{a}</span><b>{b}</b></div>)}</section><div><section style={{ ...card, background: "#eaf8ef", marginBottom: 15 }}><h3>Next Stay</h3>{current.next ? <><strong>{date(current.next.check_in)} – {date(current.next.check_out)}</strong><p>{current.next.cottage_name || current.next.unit_id}</p><span className="crm-chip">{current.next.status.replaceAll("_", " ")}</span></> : <p>No upcoming confirmed stay</p>}</section><section style={{ ...card, background: "#edf5ff", marginBottom: 15 }}><h3>Retention Opportunity</h3><p>{current.bookings.length > 1 ? "Returning guest. Consider a personalized offer if marketing consent is recorded." : "New guest. Consider a post-stay feedback request with appropriate consent."}</p><button className="crm-btn" onClick={() => setTab("Loyalty")}>View loyalty</button></section><section style={card}><h3>Quick Actions</h3><div className="crm-actions"><button className="crm-btn" onClick={() => setTab("Activity & Notes")}>Add Note</button><button className="crm-btn" onClick={() => setTab("Bookings & Payments")}>View Stays</button><button className="crm-btn" onClick={() => setTab("Preferences")}>Preferences</button></div></section></div></div>}
+        {tab === "Overview" && <div className="crm-grid"><section style={card}><h3>Customer Summary</h3>{[["First booking", date(current.first)], ["Latest booking", date(current.last)], ["Total bookings", current.bookings.length], ["Completed stays", current.completed], ["Cancellations", current.cancellations], ["Verified spending", fmt(current.total)], ["Last stay", date(current.lastStay?.check_out)]].map(([a, b]) => <div className="crm-detail" key={a}><span>{a}</span><b>{b}</b></div>)}</section><div><section style={{ ...card, background: "#eaf8ef", marginBottom: 15 }}><h3>Next Stay</h3>{current.next ? <><strong>{date(current.next.check_in)} – {date(current.next.check_out)}</strong><p>{current.next.cottage_name || current.next.unit_id}</p><span className="crm-chip">{String(current.next.status || "").replaceAll("_", " ")}</span></> : <p>No upcoming confirmed stay</p>}</section><section style={{ ...card, background: "#edf5ff", marginBottom: 15 }}><h3>Retention Opportunity</h3><p>{current.bookings.length > 1 ? "Returning guest. Consider a personalized offer if marketing consent is recorded." : "New guest. Consider a post-stay feedback request with appropriate consent."}</p><button className="crm-btn" onClick={() => setTab("Loyalty")}>View loyalty</button></section><section style={card}><h3>Quick Actions</h3><div className="crm-actions"><button className="crm-btn" onClick={() => setTab("Activity & Notes")}>Add Note</button><button className="crm-btn" onClick={() => setTab("Bookings & Payments")}>View Stays</button><button className="crm-btn" onClick={() => setTab("Preferences")}>Preferences</button></div></section></div></div>}
         {tab === "Bookings & Payments" && <div><h3>Bookings & Payments</h3>{current.bookings.map(b => {
           const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking crm-booking-layout" key={b.id}><div><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span>{archivedIds.has(String(b.id)) && <span className="crm-status-badge crm-status-archived">Archived</span>}{blacklistedEntry && <span className="crm-status-badge crm-status-blacklisted">Blacklisted guest</span>}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>
             {ps.map(p => <p key={p.id} style={{ fontSize: 13, margin: "5px 0" }}>Payment: {p.payment_method} · {fmt(p.amount)} · {p.status} · Ref: {p.transaction_reference || "—"}</p>)}{rs.map(r => <p key={r.trans_id} style={{ fontSize: 13, margin: "5px 0" }}>M-PESA receipt: <b>{r.receipt_number || "Not provided"}</b> · {r.status} · {date(r.received_at)}</p>)}{!ps.length && !rs.length && <p className="crm-muted crm-mini">No recorded payment or receipt.</p>}
             {events.filter(e => String(e.booking_id) === String(b.id) && e.event_type).map(e => <p key={e.id} className="crm-muted crm-mini">{String(e.event_type || e.stay_status || "Stay update").replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div><aside style={{ padding: 16, borderRadius: 12, border: "1px solid #cce1d9", background: "#f1f8f5", minWidth: 0 }}><h4 style={{ margin: "0 0 12px", color: "#103f43" }}>Guests accompanying this booking</h4><p style={{ margin: "0 0 8px" }}><b>Primary guest:</b> {b.name || b.guest_name || current.name}</p><p className="crm-muted crm-mini">Total guests: {Number(b.guests) || 1}</p>{Array.isArray(b.additional_guests) && b.additional_guests.length ? <ol style={{ paddingLeft: 20, marginBottom: 0 }}>{b.additional_guests.map((guest, index) => <li key={guest.guest_order || index} style={{ marginBottom: 9 }}><b>{guest.full_name || guest.name || `Guest ${index + 2}`}</b>{guest.phone ? <div className="crm-muted crm-mini">{guest.phone}</div> : null}</li>)}</ol> : <p className="crm-muted crm-mini">{Number(b.guests) > 1 ? "Accompanying guest names have not been recorded for this booking." : "No accompanying guests."}</p>}</aside>            <div className="crm-booking-actions" >
               <button type="button" className="crm-btn crm-action-edit" disabled={busy || b.status === "cancelled" || archivedIds.has(String(b.id))} onClick={() => openAction("edit", b)}>Edit Booking</button>
               {b.status === "cancelled" ? <button type="button" className="crm-btn crm-action-cancel" onClick={() => openHistory(b)}>Cancellation History</button>
-                : stayStatus(b) === "checked_in" ? <button type="button" className="crm-btn crm-action-cancel" disabled={busy} onClick={() => openAction("early", b)}>Early Departure</button>
-                : stayStatus(b) === "checked_out" ? <button type="button" className="crm-btn crm-action-cancel" disabled={busy} onClick={() => openRefund(b)}>Post-Stay Refund</button>
+                : stayStatus(b) === "in_stay" ? <button type="button" className="crm-btn crm-action-cancel" disabled={busy} onClick={() => openAction("early", b)}>Early Departure</button>
+                : !["not_checked_in"].includes(stayStatus(b)) ? <button type="button" className="crm-btn crm-action-cancel" disabled onClick={() => {}}>Stay already started</button>
                 : <button type="button" className="crm-btn crm-action-cancel" disabled={busy || archivedIds.has(String(b.id))} onClick={() => openAction("cancel", b)}>Cancel Booking</button>}
               <button type="button" className="crm-btn crm-action-blacklist" disabled={busy || !!blacklistedEntry} onClick={() => openAction("blacklist", b)}>{blacklistedEntry ? "Already Blacklisted" : "Blacklist Guest"}</button>
-              <button type="button" className="crm-btn crm-action-refund" disabled={busy} onClick={() => b.status === "cancelled" ? openHistory(b) : openRefund(b)}>{b.status === "cancelled" ? "Refund History" : "Refund Review"}</button>
+              <button type="button" className="crm-btn crm-action-refund" disabled={busy || (b.status !== "cancelled" && !futureRefundEligible(b))} onClick={() => b.status === "cancelled" ? openHistory(b) : openRefund(b)}>{b.status === "cancelled" ? "Refund History" : futureRefundEligible(b) ? "Refund Review" : "Refund Unavailable"}</button>
               <button type="button" className="crm-btn crm-action-delete" disabled={busy || archivedIds.has(String(b.id))} onClick={() => openAction("delete", b)}>{archivedIds.has(String(b.id)) ? "Archived" : "Delete Booking"}</button>
             </div>
 </div>
@@ -1875,7 +1973,7 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
       </div></div>}
     {refundModal && <div className="ew-action-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setRefundModal(null) }}>
       <form className="ew-action-modal" role="dialog" aria-modal="true" aria-labelledby="ew-refund-title" onSubmit={submitRefund}>
-        <div className="ew-action-header"><div><div className="ew-action-eyebrow">EWALEL COTTAGES · FINANCIAL REVIEW</div><h2 id="ew-refund-title">Refund processing</h2><p>Reservation #{refundModal.ref || refundModal.id}</p></div><button type="button" className="ew-action-close" onClick={() => setRefundModal(null)} disabled={busy}>×</button></div>
+        <div className="ew-action-header"><div><div className="ew-action-eyebrow">EWALEL COTTAGES · FINANCIAL REVIEW</div><h2 id="ew-refund-title">Cancel Booking & Refund processing</h2><p>Reservation #{refundModal.ref || refundModal.id}</p></div><button type="button" className="ew-action-close" onClick={() => setRefundModal(null)} disabled={busy}>×</button></div>
         <div className="ew-action-body">
           {refundSummary && <section className="ew-refund-decision" aria-labelledby="ew-decision-heading">
             <div className="ew-refund-section-head">
@@ -1907,9 +2005,74 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
               <div className="ew-refund-section-head"><div><span className="ew-refund-step">STEP 2 · REFUND RECORD</span><h3>Record a pending refund</h3><p>No money is transferred by saving this form.</p></div></div>
             <p className="ew-action-info">This creates a pending refund record only. Pay the guest separately using an approved provider, then verify the external receipt in the refund history. A completed stay requires post-stay approval.</p>
             <div className="ew-action-grid">
-              <label>Refund amount (KES)<input required type="number" min="0.01" step="0.01" max={refundSummary.maximum_refundable} value={refundForm.amount} onChange={e => setRefundForm(f => ({ ...f, amount: e.target.value }))} /></label>
-              <label>Refund method<select value={refundForm.method} onChange={e => setRefundForm(f => ({ ...f, method: e.target.value }))}><option value="mpesa">M-PESA</option><option value="cash">Cash</option><option value="card">Card</option><option value="bank">Bank transfer</option></select></label>
-              <p className="ew-refund-pending-note">Status: <strong>Pending — not yet paid</strong>. Add the external receipt only after the payment has actually been made.</p>
+              {refundForm.method !== "cash" && <label>Refund amount (KES)<input required type="number" min="0.01" step="0.01" max={refundSummary.maximum_refundable} value={refundForm.amount} onChange={e => setRefundForm(f => ({ ...f, amount: e.target.value }))} /></label>}
+              <div className="ew-refund-method-picker" style={{gridColumn:"1 / -1"}}>
+                <strong className="ew-refund-method-title">Select refund payment method</strong>
+                <div className="ew-refund-method-choices" role="radiogroup" aria-label="Refund payment method">
+                  {[["mpesa", "M-PESA", "Refund to mobile money"], ["card", "Card", "Refund through card provider"], ["cash", "Cash", "Refund paid in person"]].map(([value, label, description]) => (
+                    <label key={value} className={`ew-refund-method-choice ${refundForm.method === value ? "is-selected" : ""}`}>
+                      <input type="radio" name="ew-refund-method" value={value} checked={refundForm.method === value}
+                        onChange={() => setRefundForm(f => ({ ...f, method: value, reference: "", cash_confirmed: false }))} disabled={busy} />
+                      <span><strong>{label}</strong><small>{description}</small></span>
+                    </label>
+                  ))}
+                </div>
+                <p className="ew-refund-method-hint">
+                  {refundForm.method === "mpesa" ? "Send the refund separately through your approved M-PESA channel, then verify its transaction receipt."
+                    : refundForm.method === "card" ? "Process the refund separately through your card payment provider, then verify the refund reference."
+                    : "Issue the cash refund separately and retain a signed cash refund voucher."}
+                </p>
+              </div>
+              {["mpesa", "card"].includes(refundForm.method) && (
+                <div className="ew-refund-receipt-form">
+                  <label className="ew-refund-field">
+                    {refundForm.method === "mpesa" ? "M-PESA refund receipt / transaction ID" : "Card refund receipt / transaction ID"}
+                    <input type="text" required maxLength={120}
+                      placeholder={refundForm.method === "mpesa" ? "Enter M-PESA transaction code" : "Enter card provider refund reference"}
+                      value={refundForm.reference || ""}
+                      onChange={e => setRefundForm(f => ({ ...f, reference: e.target.value }))}
+                      disabled={busy} />
+                  </label>
+                  <p className="ew-refund-method-hint">Enter the reference from your payment provider. Saving this record does not independently verify or transfer the refund.</p>
+                </div>
+              )}
+              {refundForm.method === "cash" && (
+                <div className="ew-refund-cash-form">
+                  <label className="ew-refund-field">Cash refund amount (KES)
+                    <input type="number" min="0.01" step="0.01" max={refundSummary.maximum_refundable}
+                      required value={refundForm.amount}
+                      onChange={e => setRefundForm(f => ({ ...f, amount: e.target.value, cash_confirmed: false }))}
+                      disabled={busy} />
+                  </label>
+                  
+<div className="ew-refund-cash-confirm-box">
+  <label className="ew-refund-cash-confirm">
+    <input
+      type="checkbox"
+      checked={!!refundForm.cash_confirmed}
+      onChange={(e) =>
+        setRefundForm((f) => ({
+          ...f,
+          cash_confirmed: e.target.checked,
+        }))
+      }
+      disabled={busy}
+    />
+
+    <span className="ew-refund-cash-confirm-content">
+      {/* <strong>Confirm cash refund amount</strong> */}
+      <span>
+        I confirm that the cash refund amount has
+        been counted and checked.
+      </span>
+    </span>
+  </label>
+</div>
+
+                  <p className="ew-refund-method-hint">This confirms the amount only, not that the guest has received cash. Record guest acknowledgement and mark the refund completed only after payment.</p>
+                </div>
+              )}
+              <p className="ew-refund-pending-note">Status: <strong>Pending</strong>. Receipt details are recorded for reconciliation; final completion requires independent verification.</p>
             </div>
             <label className="ew-post-stay-approval"><input type="checkbox" checked={!!refundForm.post_stay_adjustment} onChange={e => setRefundForm(f => ({...f, post_stay_adjustment: e.target.checked}))} /> Post-stay financial adjustment (guest has already checked in/out)</label>
             {refundForm.post_stay_adjustment && <label className="ew-action-reason">Administrator approval notes (minimum 10 characters)<textarea rows={2} required minLength={10} value={refundForm.approval_note || ""} onChange={e => setRefundForm(f => ({...f, approval_note: e.target.value}))} /></label>}
@@ -2089,7 +2252,7 @@ function ReservationsPanel({ sub, cottages = [], bookings, payments = [], token,
     ["Awaiting confirmation", rows.filter(b => b.status === "awaiting_confirmation").length],
     ["Confirmed", rows.filter(b => b.status === "confirmed").length],
     ["Cancelled", rows.filter(b => b.status === "cancelled").length],
-    ["Checked in", rows.filter(b => b.status === "checked_in").length],
+    ["Checked in", rows.filter(b => b.status === "in_stay").length],
     ["Checked out", rows.filter(b => b.status === "checked_out").length],
   ];
 
@@ -2378,4 +2541,3 @@ createRoot(
     : <Guest />
 );
 
-/* Guest stay: stack status below cottage details on narrow screens. */

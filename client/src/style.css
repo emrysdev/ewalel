@@ -7896,3 +7896,107 @@ img { max-width:100%; }
 .ew-refund-decision-footer button{max-width:100%;white-space:normal}
 .ew-action-modal:has(#ew-refund-title) .ew-action-footer{background:white;align-items:center}
 @media(max-width:650px){.ew-refund-options{grid-template-columns:1fr}.ew-refund-decision-footer button{width:100%!important}.ew-action-modal:has(#ew-refund-title) .ew-action-footer{padding:12px 16px;gap:8px}}
+
+
+/* Ewalel refund method selector */
+.ew-refund-method-picker { width: 100%; min-width: 0; }
+.ew-refund-method-title { display: block; margin-bottom: 12px; color: #123f43; font-size: 14px; }
+.ew-refund-method-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ew-refund-method-choice { display: flex; align-items: flex-start; gap: 10px; padding: 15px 12px; border: 1px solid #d1e1dd; border-radius: 12px; cursor: pointer; background: #fff; min-width: 0; }
+.ew-refund-method-choice.is-selected { border: 2px solid #009b89; background: #edf8f5; padding: 14px 11px; }
+.ew-refund-method-choice input { flex: 0 0 auto; width: 17px; height: 17px; margin: 2px 0 0; accent-color: #009b89; }
+.ew-refund-method-choice span { display: grid; gap: 5px; min-width: 0; }
+.ew-refund-method-choice strong { font-size: 13px; color: #123f43; }
+.ew-refund-method-choice small { font-size: 11px; line-height: 1.45; color: #617d82; }
+.ew-refund-method-hint { margin: 12px 0 0; font-size: 12px; color: #526e72; }
+@media (max-width: 600px) { .ew-refund-method-choices { grid-template-columns: 1fr; } }
+
+
+/* Ewalel refund method selector */
+.ew-refund-method-picker { width: 100%; min-width: 0; }
+.ew-refund-method-title { display: block; margin-bottom: 12px; color: #123f43; font-size: 14px; }
+.ew-refund-method-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.ew-refund-method-choice { display: flex; align-items: flex-start; gap: 10px; padding: 15px 12px; border: 1px solid #d1e1dd; border-radius: 12px; cursor: pointer; background: #fff; min-width: 0; }
+.ew-refund-method-choice.is-selected { border: 2px solid #009b89; background: #edf8f5; padding: 14px 11px; }
+.ew-refund-method-choice input { flex: 0 0 auto; width: 17px; height: 17px; margin: 2px 0 0; accent-color: #009b89; }
+.ew-refund-method-choice span { display: grid; gap: 5px; min-width: 0; }
+.ew-refund-method-choice strong { font-size: 13px; color: #123f43; }
+.ew-refund-method-choice small { font-size: 11px; line-height: 1.45; color: #617d82; }
+.ew-refund-method-hint { margin: 12px 0 0; font-size: 12px; color: #526e72; }
+@media (max-width: 600px) { .ew-refund-method-choices { grid-template-columns: 1fr; } }
+
+.ew-refund-receipt-form,.ew-refund-cash-form{grid-column:1/-1;background:#f3f9f7;border:1px solid #d4e5df;border-radius:12px;padding:16px;min-width:0}
+.ew-refund-receipt-form .ew-refund-field,.ew-refund-cash-form .ew-refund-field{display:block;font-weight:700;color:#143f42;font-size:13px}
+.ew-refund-receipt-form input,.ew-refund-cash-form input[type="number"]{display:block;width:100%;box-sizing:border-box;margin-top:8px;padding:12px;border:1px solid #cbded9;border-radius:10px;background:white;font:inherit}
+.ew-refund-cash-confirm{display:flex!important;align-items:flex-start;gap:10px;margin-top:14px;font-size:13px;line-height:1.5;cursor:pointer}
+.ew-refund-cash-confirm input{width:18px!important;height:18px!important;flex:0 0 18px;margin:2px 0 0!important;accent-color:#009b89}
+
+
+/* Cash refund confirmation */
+
+.ew-refund-cash-confirm-box {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 16px 18px;
+  margin-top: 14px;
+  border: 1px solid #d4e5df;
+  border-radius: 12px;
+  background: #f3f9f7;
+}
+
+.ew-refund-cash-confirm {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-start !important;
+  justify-content: flex-start;
+  gap: 14px;
+  width: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.ew-refund-cash-confirm input[type="checkbox"] {
+  appearance: auto;
+  display: block;
+  width: 19px !important;
+  height: 19px !important;
+  min-width: 19px;
+  flex: 0 0 19px;
+  margin: 2px 0 0 !important;
+  padding: 0 !important;
+  accent-color: #009783;
+  cursor: pointer;
+}
+
+.ew-refund-cash-confirm-content {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  color: #45666b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ew-refund-cash-confirm-content strong {
+  color: #103f43;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ew-refund-cash-confirm:has(
+  input:checked
+) .ew-refund-cash-confirm-content strong {
+  color: #007e70;
+}
+
+@media (max-width: 600px) {
+  .ew-refund-cash-confirm-box {
+    padding: 14px;
+  }
+
+  .ew-refund-cash-confirm {
+    gap: 12px;
+  }
+}
