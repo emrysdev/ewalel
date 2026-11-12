@@ -111,7 +111,7 @@ const tabs = [
   ["Reports & Analytics", FileBarChart],
   ["Facilities & Amenities", House],
   ["Maintenance", Wrench],
-  ["Settings", Wrench],
+  // ["Settings", Wrench],
 ];
 
 const sections = {
