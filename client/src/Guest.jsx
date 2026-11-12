@@ -113,6 +113,42 @@ function CopyNumber({ label, number }) {
 }
 
 
+function normalizeBookingTime(value) {
+  const time = String(value ?? "").trim();
+
+  // Already in 24-hour format
+  const match24 = time.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+
+  if (match24) {
+    const hour = Number(match24[1]);
+    const minute = Number(match24[2]);
+
+    if (hour > 23 || minute > 59) return "";
+
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  }
+
+  // Convert 12-hour time to 24-hour time
+  const match12 = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+
+  if (match12) {
+    let hour = Number(match12[1]);
+    const minute = Number(match12[2]);
+    const period = match12[3].toUpperCase();
+
+    if (hour < 1 || hour > 12 || minute > 59) return "";
+
+    hour = hour % 12;
+
+    if (period === "PM") hour += 12;
+
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  }
+
+  return "";
+}
+
+
 function imageUrl(value) {
   if (!value) return "";
   const raw = String(value).trim();
@@ -399,6 +435,17 @@ const features = [
   }
 ];
 
+
+function to24Hour(hour, minute, period) {
+  let h = Number(hour);
+
+  if (period === "AM" && h === 12) h = 0;
+  if (period === "PM" && h !== 12) h += 12;
+
+  return `${String(h).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+
 export default function Guest() {
   const [page, setPage] = useState("Home");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -412,7 +459,7 @@ export default function Guest() {
   const [checkinTime, setCheckinTime] = useState("14:00");
   const [checkoutTime, setCheckoutTime] = useState("10:00");
   const [checkout, setCheckout] = useState("");
-  const [guests, setGuests] = useState("2");
+  const [guests, setGuests] = useState("1");
   const [additionalGuests, setAdditionalGuests] = useState([]);
   function changeGuestCount(value) {
     setGuests(value);
@@ -538,6 +585,14 @@ export default function Guest() {
       return;
     }
 
+    // Ensure the API receives 24-hour HH:MM strings, regardless of the UI display.
+    const checkIn24 = normalizeBookingTime(checkinTime);
+    const checkOut24 = normalizeBookingTime(checkoutTime);
+    if (!checkIn24 || !checkOut24) {
+      setError("Please choose valid check-in and check-out times.");
+      return;
+    }
+
     setBusy(true);
 
     try {
@@ -553,8 +608,8 @@ export default function Guest() {
           guest_phone: phone,
           check_in: checkin,
           check_out: checkout,
-          check_in_time: checkinTime || "14:00",
-          check_out_time: checkoutTime || "10:00",
+          check_in_time: checkIn24,
+          check_out_time: checkOut24,
           guests: Number(guests),
           additional_guests: additionalGuests.map(guest => ({ name: guest.name.trim() }))
         })

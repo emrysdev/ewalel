@@ -1283,7 +1283,7 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
   } = req.body || {};
   const scheduledCheckIn = String(check_in_time || "14:00").trim();
   const scheduledCheckOut = String(check_out_time || "10:00").trim();
-  if (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(scheduledCheckIn)) {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(scheduledCheckIn)) {
     return res.status(400).json({ error: "Check-in time must be in HH:MM format" });
   }
 
