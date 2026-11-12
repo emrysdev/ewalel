@@ -241,6 +241,29 @@ function today() {
 
 
 // Public availability calendar: reads the same live booking/maintenance data as reception.
+
+// Accessible 12-hour time selection; booking API continues receiving HH:MM.
+function EwalelTimeSelect({ value, onChange, label }) {
+  const [hour24, minute] = (value || "14:00").split(":").map(Number);
+  const period = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = String(hour24 % 12 || 12).padStart(2, "0");
+  const update = (nextHour, nextMinute, nextPeriod) => {
+    const h = Number(nextHour) % 12 + (nextPeriod === "PM" ? 12 : 0);
+    onChange(`${String(h).padStart(2, "0")}:${String(nextMinute).padStart(2, "0")}`);
+  };
+  return <div className="ew-time-select" role="group" aria-label={label}>
+    <select aria-label={`${label} hour`} value={hour12} onChange={e => update(e.target.value, minute, period)}>
+      {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0")).map(h => <option key={h} value={h}>{h}</option>)}
+    </select>
+    <select aria-label={`${label} minute`} value={String(minute).padStart(2, "0")} onChange={e => update(hour12, e.target.value, period)}>
+      {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0")).map(m => <option key={m} value={m}>{m}</option>)}
+    </select>
+    <select aria-label={`${label} AM or PM`} value={period} onChange={e => update(hour12, minute, e.target.value)}>
+      <option value="AM">AM</option><option value="PM">PM</option>
+    </select>
+  </div>;
+}
+
 function PublicAvailabilityCalendar({ cottageId, checkIn, checkOut, onDatesChange, onReadyChange }) {
   const [periods, setPeriods] = useState([]);
   const [status, setStatus] = useState("idle");
@@ -294,15 +317,15 @@ function PublicAvailabilityCalendar({ cottageId, checkIn, checkOut, onDatesChang
     onDatesChange(checkIn, iso); setChoosing("checkin"); setMessage("Dates selected. Complete your reservation below.");
   };
   const swatch = (color, text) => <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12 }}><span style={{ width: 12, height: 12, background: color, borderRadius: 3, border: "1px solid #cbd8d5" }} />{text}</span>;
-  return <section aria-label="Cottage availability" style={{ gridColumn: "1 / -1", border: "1px solid #d8e4e1", borderRadius: 14, padding: 16, display: "grid", gap: 12 }}>
-    <strong style={{ color: "#103f43" }}>Cottage availability</strong>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+  return <section className="ew-availability-calendar" aria-label="Cottage availability">
+    <strong className="ew-calendar-heading">Cottage availability</strong>
+    <div className="ew-calendar-month">
       <button type="button" aria-label="Previous month" onClick={() => shift(-1)} style={{ border: 0, background: "transparent", cursor: "pointer", fontSize: 25 }}>‹</button>
       <strong>{monthTitle}</strong>
       <button type="button" aria-label="Next month" onClick={() => shift(1)} style={{ border: 0, background: "transparent", cursor: "pointer", fontSize: 25 }}>›</button>
     </div>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(7,minmax(0,1fr))", gap: 5 }}>
-      {["M", "T", "W", "T", "F", "S", "S"].map((day, i) => <span key={`weekday-${i}`} style={{ textAlign: "center", fontSize: 12, color: "#64748b" }}>{day}</span>)}
+    <div className="ew-calendar-days">
+      {["M", "T", "W", "T", "F", "S", "S"].map((day, i) => <span key={`weekday-${i}`} className="ew-calendar-weekday">{day}</span>)}
       {Array.from({ length: offset }, (_, i) => <span key={`blank-${i}`} />)}
       {Array.from({ length: days }, (_, i) => {
         const iso = `${month}-${String(i + 1).padStart(2, "0")}`;
@@ -311,7 +334,7 @@ function PublicAvailabilityCalendar({ cottageId, checkIn, checkOut, onDatesChang
         const selected = iso === checkIn || iso === checkOut;
         const within = checkIn && checkOut && iso > checkIn && iso < checkOut;
         const color = status !== "ready" ? "#eef1f0" : type === "booking" ? "#f4b9b5" : type === "maintenance" ? "#f2d397" : selected ? "#15565b" : within ? "#c8e9dc" : "#edf6f1";
-        return <button type="button" key={iso} disabled={past || status !== "ready"} onClick={() => pick(iso)} title={type === "booking" ? "Booked" : type === "maintenance" ? "Maintenance" : "Available"} style={{ height: 39, minWidth: 0, borderRadius: 7, border: selected ? "2px solid #0d3439" : "1px solid transparent", background: color, color: selected && !type ? "white" : "#17383e", opacity: past ? 0.4 : 1, cursor: past || status !== "ready" ? "not-allowed" : "pointer", fontWeight: selected ? 700 : 400 }}>{i + 1}</button>;
+        return <button type="button" key={iso} disabled={past || status !== "ready"} onClick={() => pick(iso)} title={type === "booking" ? "Booked" : type === "maintenance" ? "Maintenance" : "Available"} className="ew-calendar-day" style={{ background: color, color: selected && !type ? "white" : "#17383e", opacity: past ? 0.4 : 1, border: selected ? "2px solid #0d3439" : "1px solid transparent", cursor: past || status !== "ready" ? "not-allowed" : "pointer", fontWeight: selected ? 700 : 500 }}>{i + 1}</button>;
       })}
     </div>
     <div style={{ display: "flex", flexWrap: "wrap", gap: 13 }}>{swatch("#edf6f1", "Available")}{swatch("#f4b9b5", "Booked")}{swatch("#f2d397", "Maintenance")}{swatch("#c8e9dc", "Selected stay")}</div>
@@ -621,7 +644,7 @@ export default function Guest() {
     "Home",
     "Cottages",
     "Book a Stay",
-    "Contact"
+    "Contact Us"
   ];
 
   return (
@@ -1016,11 +1039,7 @@ export default function Guest() {
   {/* CHECK-IN TIME */}
   <label>
     Check-in time
-    <input
-      type="time"
-      value={checkinTime}
-      onChange={(e) => setCheckinTime(e.target.value)}
-    />
+    <EwalelTimeSelect label="Check-in time" value={checkinTime} onChange={setCheckinTime} />
   </label>
 
   {/* CHECK-OUT DATE */}
@@ -1038,11 +1057,7 @@ export default function Guest() {
   {/* CHECK-OUT TIME */}
   <label>
     Check-out time
-    <input
-      type="time"
-      value={checkoutTime}
-      onChange={(e) => setCheckoutTime(e.target.value)}
-    />
+    <EwalelTimeSelect label="Check-out time" value={checkoutTime} onChange={setCheckoutTime} />
   </label>
 
   <PublicAvailabilityCalendar
@@ -1401,7 +1416,7 @@ export default function Guest() {
 
 
       {/* CONTACT */}
-      {page === "Contact" && <ContactPage />}
+      {page === "Contact Us" && <ContactPage />}
 
       {/* FOOTER */}
 
