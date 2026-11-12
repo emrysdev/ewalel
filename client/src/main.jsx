@@ -43,20 +43,18 @@ import ManualGuestRegistration from "./components/ManualGuestRegistration.jsx";
 // API CONFIGURATION
 // =====================================================
 
-const isLocal = ["localhost", "127.0.0.1"].includes(
-  window.location.hostname
-);
+const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 
+// Configure VITE_API_URL for a separate Railway backend, or leave it unset
+// when the API and frontend are served from the same origin.
 const BASE = (
-  isLocal
-    ? import.meta.env.VITE_API_URL || "http://localhost:4000"
-    : window.location.origin
+  import.meta.env.VITE_API_URL ||
+  (isLocal ? "http://localhost:4000" : window.location.origin)
 ).replace(/\/$/, "");
-
 
 const IMAGE_BASE = (
   import.meta.env.VITE_IMAGE_BASE_URL ||
-  "https://robust-generosity-production-7f17.up.railway.app"
+  BASE
 ).replace(/\/$/, "");
 
 function getImageUrl(photoUrl) {
@@ -69,46 +67,37 @@ function getImageUrl(photoUrl) {
 }
 
 async function api(path, options = {}, token) {
-  let response;
+  const { headers: customHeaders, ...requestOptions } = options;
+  const isFormData = typeof FormData !== "undefined" && requestOptions.body instanceof FormData;
+  const headers = {
+    ...(!isFormData && requestOptions.body != null ? { "Content-Type": "application/json" } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...customHeaders,
+  };
 
+  let response;
   try {
     response = await fetch(`${BASE}/api${path}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token
-          ? { Authorization: `Bearer ${token}` }
-          : {}),
-        ...options.headers,
-      },
+      ...requestOptions,
+      headers,
     });
   } catch (error) {
-    console.error("API connection error:", error);
-
-    throw new Error(
-      "Unable to connect to the Ewalel server."
-    );
+    console.error("Ewalel API connection error:", error);
+    throw new Error("Unable to connect to the Ewalel server. Check the API URL and Railway deployment.");
   }
 
-  const data = await response.json().catch(() => ({}));
-
+  const raw = await response.text();
+  let data = {};
+  if (raw) {
+    try { data = JSON.parse(raw); }
+    catch { data = { message: response.ok ? "Unexpected server response." : `Request failed (HTTP ${response.status})` }; }
+  }
   if (!response.ok) {
-    console.error("Ewalel API error:", {
-      endpoint: path,
-      status: response.status,
-      response: data,
-    });
-
-    throw new Error(
-      data.error ||
-      data.message ||
-      `Request failed (HTTP ${response.status})`
-    );
+    console.error("Ewalel API error:", { endpoint: path, status: response.status, response: data });
+    throw new Error(data?.error || data?.message || `Request failed (HTTP ${response.status})`);
   }
-
   return data;
 }
-
 
 const money = (value) =>
   "KES " + Number(value || 0).toLocaleString("en-KE");
@@ -210,10 +199,10 @@ function App() {
       ]);
 
       setCottages(Array.isArray(c) ? c : []);
-      setRecords(m);
-      setBookings(b);
-      setPayments(p);
-      setFinance(f);
+      setRecords(Array.isArray(m) ? m : []);
+      setBookings(Array.isArray(b) ? b : []);
+      setPayments(Array.isArray(p) ? p : []);
+      setFinance(f && typeof f === "object" ? f : { revenue: 0, outstanding: 0, methods: [] });
       setError("");
     } catch (err) {
       if (
@@ -1650,9 +1639,13 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
           <h3>Guest check-in & check-out</h3>
 
           {current.bookings
-            .filter((b) => b.status !== "cancelled" && !archivedIds.has(String(b.id)))
             .map((b) => {
-              const status = stayStatus(b);
+              const cancelled = b.status === "cancelled";
+              const archived = archivedIds.has(String(b.id));
+              const status = cancelled ? "cancelled" : stayStatus(b);
+              // Only show Edited when an explicit audit field is returned by the API.
+              const edited = Boolean(b.was_edited || b.is_edited || b.edit_count > 0 || b.last_edited_at || b.edited_at);
+              const canManageStay = !cancelled && !archived;
 
               return (
                 <div
@@ -1662,17 +1655,25 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
                     borderBottom: "1px solid #dce7e2",
                   }}
                 >
-                  <strong>
-                    {b.cottage_name || b.unit_id} · #{b.ref || b.id}
-                  </strong>
+                  <div className="ew-stay-booking-heading">
+                    <strong className="ew-stay-booking-name">
+                      {b.cottage_name || b.unit_id} · #{b.ref || b.id}
+                    </strong>
+                    <div className="ew-stay-flags" aria-label="Booking administrative status">
+                      <span className={`ew-stay-flag ${cancelled ? "is-cancelled" : archived ? "is-archived" : "is-active"}`}>
+                        {cancelled ? "Cancelled booking" : archived ? "Archived booking" : "Active booking"}
+                      </span>
+                      {blacklistedEntry && <span className="ew-stay-flag is-blacklisted">Blacklisted guest</span>}
+                      {edited && <span className="ew-stay-flag is-edited">Edited booking</span>}
+                    </div>
+                  </div>
 
                   <p>
                     {date(b.check_in)} – {date(b.check_out)}
                   </p>
 
                   <p>
-                    Stay status:{" "}
-                    <strong>{status.replaceAll("_", " ")}</strong>
+                    Stay status: <strong>{status.replaceAll("_", " ")}</strong>
                   </p>
 
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, margin: "12px 0" }}>
@@ -1694,11 +1695,13 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
                     <strong>Actual check-out:</strong> {stayTime(stayRecord(b)?.actual_check_out || b.actual_check_out)}
                   </p>
 
-                  {status !== "checked_out" && b.status !== "confirmed" && (
+                  {canManageStay && status !== "checked_out" && b.status !== "confirmed" && (
                     <GuestBalancePayment booking={b} payments={payments} receipts={receipts} token={token} refresh={refresh} reloadExtra={reloadExtra} onError={onError} onNotice={onNotice} />
                   )}
 
-                  {status === "checked_out" ? (
+                  {!canManageStay ? (
+                    <p className="ew-stay-blocked">{cancelled ? "Booking cancelled — check-in and payment actions unavailable." : "Booking archived — check-in and payment actions unavailable."}</p>
+                  ) : status === "checked_out" ? (
                     <span className="crm-chip">Stay Completed</span>
                   ) : status !== "checked_in" && b.status !== "confirmed" ? (
                     <p style={{ color: "#92520a", fontSize: 13, margin: "10px 0" }}>
@@ -1730,18 +1733,20 @@ main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% 
             })}
         </section>
 
-        <div className="crm-tabs" style={{ marginBottom: 20 }}>{["Overview", "Bookings & Payments", "Activity & Notes", "Preferences", "Loyalty"].map(t => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>)}</div>
+        <div className="crm-tabs" style={{ marginBottom: 20, marginTop: 10 }}>{["Overview", "Bookings & Payments", "Activity & Notes", "Preferences", "Loyalty"].map(t => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>)}</div>
         {tab === "Overview" && <div className="crm-grid"><section style={card}><h3>Customer Summary</h3>{[["First booking", date(current.first)], ["Latest booking", date(current.last)], ["Total bookings", current.bookings.length], ["Completed stays", current.completed], ["Cancellations", current.cancellations], ["Verified spending", fmt(current.total)], ["Last stay", date(current.lastStay?.check_out)]].map(([a, b]) => <div className="crm-detail" key={a}><span>{a}</span><b>{b}</b></div>)}</section><div><section style={{ ...card, background: "#eaf8ef", marginBottom: 15 }}><h3>Next Stay</h3>{current.next ? <><strong>{date(current.next.check_in)} – {date(current.next.check_out)}</strong><p>{current.next.cottage_name || current.next.unit_id}</p><span className="crm-chip">{current.next.status.replaceAll("_", " ")}</span></> : <p>No upcoming confirmed stay</p>}</section><section style={{ ...card, background: "#edf5ff", marginBottom: 15 }}><h3>Retention Opportunity</h3><p>{current.bookings.length > 1 ? "Returning guest. Consider a personalized offer if marketing consent is recorded." : "New guest. Consider a post-stay feedback request with appropriate consent."}</p><button className="crm-btn" onClick={() => setTab("Loyalty")}>View loyalty</button></section><section style={card}><h3>Quick Actions</h3><div className="crm-actions"><button className="crm-btn" onClick={() => setTab("Activity & Notes")}>Add Note</button><button className="crm-btn" onClick={() => setTab("Bookings & Payments")}>View Stays</button><button className="crm-btn" onClick={() => setTab("Preferences")}>Preferences</button></div></section></div></div>}
         {tab === "Bookings & Payments" && <div><h3>Bookings & Payments</h3>{current.bookings.map(b => {
-          const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking" key={b.id} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: 16, alignItems: "start" }}><div><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span>{archivedIds.has(String(b.id)) && <span className="crm-status-badge crm-status-archived">Archived</span>}{blacklistedEntry && <span className="crm-status-badge crm-status-blacklisted">Blacklisted guest</span>}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>
+          const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking crm-booking-layout" key={b.id}><div><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span>{archivedIds.has(String(b.id)) && <span className="crm-status-badge crm-status-archived">Archived</span>}{blacklistedEntry && <span className="crm-status-badge crm-status-blacklisted">Blacklisted guest</span>}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>
             {ps.map(p => <p key={p.id} style={{ fontSize: 13, margin: "5px 0" }}>Payment: {p.payment_method} · {fmt(p.amount)} · {p.status} · Ref: {p.transaction_reference || "—"}</p>)}{rs.map(r => <p key={r.trans_id} style={{ fontSize: 13, margin: "5px 0" }}>M-PESA receipt: <b>{r.receipt_number || "Not provided"}</b> · {r.status} · {date(r.received_at)}</p>)}{!ps.length && !rs.length && <p className="crm-muted crm-mini">No recorded payment or receipt.</p>}
-            <div className="crm-booking-actions" style={{ marginTop: 14 }}>
+            {events.filter(e => String(e.booking_id) === String(b.id) && e.event_type).map(e => <p key={e.id} className="crm-muted crm-mini">{String(e.event_type || e.stay_status || "Stay update").replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div><aside style={{ padding: 16, borderRadius: 12, border: "1px solid #cce1d9", background: "#f1f8f5", minWidth: 0 }}><h4 style={{ margin: "0 0 12px", color: "#103f43" }}>Guests accompanying this booking</h4><p style={{ margin: "0 0 8px" }}><b>Primary guest:</b> {b.name || b.guest_name || current.name}</p><p className="crm-muted crm-mini">Total guests: {Number(b.guests) || 1}</p>{Array.isArray(b.additional_guests) && b.additional_guests.length ? <ol style={{ paddingLeft: 20, marginBottom: 0 }}>{b.additional_guests.map((guest, index) => <li key={guest.guest_order || index} style={{ marginBottom: 9 }}><b>{guest.full_name || guest.name || `Guest ${index + 2}`}</b>{guest.phone ? 
+            <div className="crm-muted crm-mini">{guest.phone}</div> : null}</li>)}</ol> : <p className="crm-muted crm-mini">{Number(b.guests) > 1 ? "Accompanying guest names have not been recorded for this booking." : "No accompanying guests."}</p>}</aside>            
+            <div className="crm-booking-actions" style={{ marginTop: 20, }}>
               <button type="button" className="crm-btn crm-action-edit" disabled={busy || b.status === "cancelled" || archivedIds.has(String(b.id))} onClick={() => openAction("edit", b)}>Edit Booking</button>
               <button type="button" className="crm-btn crm-action-cancel" disabled={busy || b.status === "cancelled" || archivedIds.has(String(b.id))} onClick={() => openAction("cancel", b)}>Cancel Booking</button>
               <button type="button" className="crm-btn crm-action-blacklist" disabled={busy || !!blacklistedEntry} onClick={() => openAction("blacklist", b)}>{blacklistedEntry ? "Already Blacklisted" : "Blacklist Guest"}</button>
               <button type="button" className="crm-btn crm-action-delete" disabled={busy || archivedIds.has(String(b.id))} onClick={() => openAction("delete", b)}>{archivedIds.has(String(b.id)) ? "Archived" : "Delete Booking"}</button>
             </div>
-            {events.filter(e => String(e.booking_id) === String(b.id) && e.event_type).map(e => <p key={e.id} className="crm-muted crm-mini">{String(e.event_type || e.stay_status || "Stay update").replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div><aside style={{ padding: 16, borderRadius: 12, border: "1px solid #cce1d9", background: "#f1f8f5", minWidth: 0 }}><h4 style={{ margin: "0 0 12px", color: "#103f43" }}>Guests accompanying this booking</h4><p style={{ margin: "0 0 8px" }}><b>Primary guest:</b> {b.name || b.guest_name || current.name}</p><p className="crm-muted crm-mini">Total guests: {Number(b.guests) || 1}</p>{Array.isArray(b.additional_guests) && b.additional_guests.length ? <ol style={{ paddingLeft: 20, marginBottom: 0 }}>{b.additional_guests.map((guest, index) => <li key={guest.guest_order || index} style={{ marginBottom: 9 }}><b>{guest.full_name || guest.name || `Guest ${index + 2}`}</b>{guest.phone ? <div className="crm-muted crm-mini">{guest.phone}</div> : null}</li>)}</ol> : <p className="crm-muted crm-mini">{Number(b.guests) > 1 ? "Accompanying guest names have not been recorded for this booking." : "No accompanying guests."}</p>}</aside></div>
+          </div>
         })}{!current.bookings.length && <p>No bookings yet.</p>}</div>}
         {tab === "Activity & Notes" && <div><h3>Customer Activity & Notes</h3><form onSubmit={saveNote}><textarea className="crm-input" rows={3} placeholder="Add an internal customer service note" value={noteText} onChange={e => setNoteText(e.target.value)} required /><button className="crm-btn crm-primary" style={{ marginTop: 10 }} disabled={busy || !noteText.trim()}>Save Note</button></form><div style={{ marginTop: 18 }}>{notes.filter(n => customerRow && String(n.customer_id) === String(customerRow.id)).map(n => <div className="crm-booking" key={n.id}><p>{n.note}</p><small className="crm-muted">{date(n.created_at)}</small></div>)}{!customerRow && <p className="crm-muted">No saved customer notes.</p>}</div></div>}
         {tab === "Preferences" && <form onSubmit={savePreferences}><h3>Guest Preferences</h3><label>Preferred cottage<input className="crm-input" value={pref.preferred_cottage} onChange={e => setPref({ ...pref, preferred_cottage: e.target.value })} /></label><label style={{ display: "block", marginTop: 14 }}>Special requests<textarea className="crm-input" rows={4} value={pref.special_requests} onChange={e => setPref({ ...pref, special_requests: e.target.value })} /></label><label style={{ display: "flex", alignItems: "center", gap: 9, margin: "14px 0" }}><input type="checkbox" checked={pref.marketing_consent} onChange={e => setPref({ ...pref, marketing_consent: e.target.checked })} /> Marketing consent recorded</label><p className="crm-muted crm-mini">Only tick this when the guest has explicitly consented. This does not send messages.</p><button className="crm-btn crm-primary" disabled={busy}>Save Preferences</button></form>}

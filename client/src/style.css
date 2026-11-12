@@ -3679,3 +3679,76 @@ select {
 .ew-crm .crm-status-badge{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;font-size:11px;font-weight:750;margin:3px 5px 3px 0}
 .ew-crm .crm-status-blacklisted{background:#fce8ec;color:#962c45;border:1px solid #f0bcc8}
 .ew-crm .crm-status-archived{background:#fff2dd;color:#87520b;border:1px solid #eed2a5}
+
+
+/* Booking action buttons */
+
+.booking-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  overflow: visible;
+}
+
+.booking-actions button {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .booking-actions {
+    flex-wrap: wrap;
+  }
+}
+
+
+/* Regenerated Ewalel responsive layout refinements */
+:root { --ew-primary:#103f43; --ew-accent:#b77a4c; --ew-surface:#fff; --ew-muted:#667d79; }
+html { min-width:320px; scroll-behavior:smooth; }
+body { min-width:320px; overflow-x:hidden; }
+button, input, select, textarea { font:inherit; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline:3px solid #d5a36c; outline-offset:2px; }
+button:disabled { cursor:not-allowed; opacity:.65; }
+img { max-width:100%; }
+.ew-suite-shell, .ew-suite-workspace { min-width:0; }
+.ew-suite-workspace main { min-width:0; }
+.panel, .ew-widget, .record { min-width:0; }
+.notice[role="alert"] { color:#9c3030; background:#fff3f2; border:1px solid #f3d1cc; border-radius:10px; padding:12px 14px; }
+.login { width:min(520px, calc(100% - 28px)); }
+.login .panel { box-shadow:0 20px 65px rgba(16,63,67,.10); }
+.fields input:focus, .fields select:focus, .fields textarea:focus { border-color:#398e78; }
+@media (max-width: 1000px) {
+  .stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .records { grid-template-columns:1fr; }
+}
+@media (max-width: 720px) {
+  .stats { grid-template-columns:1fr; }
+  .page-title { align-items:stretch; }
+  .page-title .primary { justify-content:center; }
+  .panel-title { align-items:stretch; }
+  .filters { flex-wrap:wrap; }
+  .login { margin:5vh auto; padding:0; }
+  .login .panel { padding:24px 18px; }
+  .record-top { flex-wrap:wrap; }
+  .record-top .status { margin-left:auto; }
+  .ew-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .ew-analytics, .ew-bottom { grid-template-columns:minmax(0,1fr); }
+}
+@media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+
+/* Guest check-in: administrative status labels */
+.ew-stay-flags{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 8px}
+.ew-stay-flag{display:inline-flex;align-items:center;border-radius:999px;padding:6px 11px;font-size:12px;font-weight:750;border:1px solid transparent}
+.ew-stay-flag.is-active{background:#e5f4eb;color:#16633d;border-color:#b8dfc8}
+.ew-stay-flag.is-cancelled{background:#fee9e8;color:#a12929;border-color:#f4c2be}
+.ew-stay-flag.is-blacklisted{background:#fce8ec;color:#962c45;border-color:#f0bcc8}
+.ew-stay-flag.is-edited{background:#fff1d8;color:#865208;border-color:#ecd29e}
+.ew-stay-flag.is-archived{background:#edf0f4;color:#4e5a6b;border-color:#d8dfe8}
+.ew-stay-blocked{color:#9b3030;font-size:13px;font-weight:650;margin:10px 0}
