@@ -3752,3 +3752,156 @@ img { max-width:100%; }
 .ew-stay-flag.is-edited{background:#fff1d8;color:#865208;border-color:#ecd29e}
 .ew-stay-flag.is-archived{background:#edf0f4;color:#4e5a6b;border-color:#d8dfe8}
 .ew-stay-blocked{color:#9b3030;font-size:13px;font-weight:650;margin:10px 0}
+
+/* Keep the booking status at the top-right of each stay card. */
+.ew-stay-booking-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
+}
+.ew-stay-booking-name { min-width: 0; overflow-wrap: anywhere; }
+.ew-stay-booking-heading .ew-stay-flags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  flex-shrink: 0;
+}
+@media (max-width: 560px) {
+  .ew-stay-booking-heading { flex-wrap: wrap; }
+  .ew-stay-booking-heading .ew-stay-flags { margin-left: auto; }
+}
+
+/* Full-width, bottom-aligned booking management actions */
+.crm-booking-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.crm-booking-layout > * { min-width: 0; }
+.crm-booking-layout > .crm-booking-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin-top: 4px;
+}
+.crm-booking-layout > .crm-booking-actions > button {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: normal;
+}
+@media (max-width: 760px) {
+  .crm-booking-layout { grid-template-columns: minmax(0, 1fr); }
+  .crm-booking-layout > .crm-booking-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 400px) {
+  .crm-booking-layout > .crm-booking-actions { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Guest stay top-right status and scheduled times */
+@media (max-width: 650px) {
+  .ew-stay-top-layout { grid-template-columns: 1fr !important; }
+  .ew-stay-top-layout .booking-status-column { margin-top: 0 !important; }
+  .ew-stay-top-layout .ew-stay-flags { justify-content: flex-start !important; }
+  .ew-stay-top-layout .booking-status-column > p { text-align: left !important; }
+}
+
+
+/* Compact guest stay summary: remove excess vertical space */
+.ew-stay-top-layout {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 308px) !important;
+  align-items: start !important;
+  column-gap: 20px !important;
+  row-gap: 8px !important;
+}
+.ew-stay-top-layout .booking-status-column {
+  margin-top: -42px !important;
+  align-self: start !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 7px !important;
+}
+.ew-stay-top-layout .booking-status-column .ew-stay-flags {
+  justify-content: flex-end !important;
+  margin: 0 !important;
+}
+.ew-stay-top-layout .booking-status-column > p {
+  margin: 0 !important;
+  text-align: right !important;
+}
+.ew-stay-top-layout .guest-scheduled-times {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  margin: 0 !important;
+  max-width: none !important;
+  width: 100% !important;
+}
+.ew-stay-top-layout .guest-scheduled-times > div {
+  width: 100% !important;
+  padding: 10px 12px !important;
+}
+@media (max-width: 650px) {
+  .ew-stay-top-layout { grid-template-columns: 1fr !important; }
+  .ew-stay-top-layout .booking-status-column { margin-top: 0 !important; }
+  .ew-stay-top-layout .booking-status-column .ew-stay-flags { justify-content: flex-start !important; }
+  .ew-stay-top-layout .booking-status-column > p { text-align: left !important; }
+}
+/* Move booking information higher */
+
+.booking-status-column {
+  margin-top: -42px !important;
+  align-self: flex-start !important;
+  gap: 6px !important;
+}
+
+.booking-status-column .guest-scheduled-times {
+  margin-top: 0 !important;
+  gap: 6px !important;
+}
+
+/* Reduce empty space in the card */
+.guest-stay-card {
+  align-items: flex-start !important;
+  gap: 8px !important;
+}
+/* Final desktop alignment: override earlier mobile/desktop conflicts */
+@media (min-width: 651px) {
+  .ew-stay-top-layout .booking-status-column {
+    margin-top: -42px !important;
+  }
+}
+@media (max-width: 650px) {
+  .ew-stay-top-layout .booking-status-column {
+    margin-top: 0 !important;
+  }
+}
+
+/* Actual timestamps appear as small text immediately below scheduled time cards. */
+.guest-scheduled-times .ew-stay-actual-time {
+  margin: -3px 0 4px;
+  padding: 0 3px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #617880;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.guest-scheduled-times .ew-stay-actual-time strong {
+  font-weight: 600;
+  color: #36565c;
+}
