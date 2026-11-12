@@ -273,6 +273,58 @@ function auth(req, res, next) {
   }
 }
 
+
+ // TEMPORARY PHOTO RESTORATION ENDPOINT
+ // Remove after the photographs have been restored.
+
+app.post(
+  "/api/admin/restore-cottage-photo",
+  auth,
+  express.raw({
+    type: "application/octet-stream",
+    limit: "10mb"
+  }),
+  asyncRoute(async (req, res) => {
+    const filename = String(req.headers["x-photo-filename"] || "");
+
+    // Accept only safe image filenames.
+    if (!/^[a-zA-Z0-9_-]+\.(webp|jpg|jpeg|png)$/i.test(filename)) {
+      return res.status(400).json({
+        error: "Invalid photograph filename"
+      });
+    }
+
+    if (!Buffer.isBuffer(req.body) || !req.body.length) {
+      return res.status(400).json({
+        error: "Photograph is empty"
+      });
+    }
+
+    // Verify that the uploaded file is an actual image.
+    const metadata = await sharp(req.body).metadata();
+
+    if (!["jpeg", "png", "webp"].includes(metadata.format)) {
+      return res.status(400).json({
+        error: "Unsupported image format"
+      });
+    }
+
+    const destination = path.join(cottageUploadDir, filename);
+
+    // Do not overwrite existing photographs.
+    await fs.writeFile(destination, req.body, {
+      flag: "wx"
+    });
+
+    res.status(201).json({
+      ok: true,
+      filename,
+      url: `/uploads/cottages/${filename}`
+    });
+  })
+);
+
+
 function positive(v) {
   return v !== null &&
     v !== "" &&
