@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 const base = (import.meta.env.VITE_API_URL || (["localhost", "127.0.0.1"].includes(window.location.hostname) ? "http://localhost:4000" : window.location.origin)).replace(/\/$/, "");
 const today = () => new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" });
-const initial = () => ({ name: "", phone: "", email: "", cottage_id: "", check_in: today(), check_out: "", guests: 1, cash_received: "0", cash_verified: false, notes: "" });
+const initial = () => ({ name: "", phone: "", email: "", cottage_id: "", check_in: today(), check_out: "", check_in_time: "14:00", check_out_time: "10:00", guests: 1, cash_received: "0", cash_verified: false, notes: "" });
 const fmt = n => "KES " + Number(n || 0).toLocaleString("en-KE");
 const blankGuest = () => ({ name: "", phone: "" });
 const capacityOf = cottage => {
@@ -186,6 +186,7 @@ export default function ManualGuestRegistration({ cottages = [], token, onSaved,
     if (additionalGuests.length !== guestCount - 1 || additionalGuests.some(g => !g.name.trim())) return onError("Enter the full name of every accompanying guest.");
     if (!availabilityReady) return onError("Cottage availability has not been verified.");
     if (nights < 1) return onError("Check-out must be after check-in.");
+    if (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(form.check_in_time) || !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(form.check_out_time)) return onError("Enter valid scheduled check-in and check-out times.");
     if (Number(form.cash_received) > total) return onError("Cash received cannot exceed the booking total.");
     if (Number(form.cash_received) > 0 && !form.cash_verified) return onError("Verify the cash has been received before saving.");
     setBusy(true);
@@ -233,6 +234,15 @@ export default function ManualGuestRegistration({ cottages = [], token, onSaved,
         </div>
         <label style={labelStyle}>Cottage<select style={inputStyle} required value={form.cottage_id} onChange={e => changeCottage(e.target.value)}><option value="">Select cottage</option>{cottages.filter(c => Number(c.active) !== 0).map(c => <option key={c.id} value={c.id}>{c.name} — {fmt(c.nightly_rate ?? c.price)}/night · {capacityOf(c) ?? "Capacity not set"} guests max</option>)}</select></label>
         <AvailabilityCalendar cottageId={form.cottage_id} token={token} checkIn={form.check_in} checkOut={form.check_out} onDatesChange={changeDates} onReadyChange={changeAvailabilityReady} />
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 12 }}>
+          <label style={labelStyle}>Scheduled check-in time (Kenya)
+            <input style={inputStyle} type="time" required value={form.check_in_time} onChange={e => field("check_in_time", e.target.value)} />
+          </label>
+          <label style={labelStyle}>Scheduled check-out time (Kenya)
+            <input style={inputStyle} type="time" required value={form.check_out_time} onChange={e => field("check_out_time", e.target.value)} />
+          </label>
+        </div>
+        <p style={{ margin: 0, color: "#537078", fontSize: 12 }}>Scheduled times are editable. Actual arrival and departure times are recorded separately when staff use Check In Guest / Check Out Guest.</p>
         <label style={labelStyle}>Number of guests (including primary guest)
           <input style={inputStyle} type="number" min={1} max={maxGuests ?? undefined} required value={form.guests} onChange={e => changeGuestCount(e.target.value)} />
         </label>
@@ -263,7 +273,7 @@ export default function ManualGuestRegistration({ cottages = [], token, onSaved,
         <h2>✓ Booking successfully saved</h2>
         <p>Ewalel Cottages · Booking Acknowledgement</p>
         <p><b>Booking:</b> {receipt.booking_ref}</p><p><b>Guests:</b> {receipt.guests ?? "See reservation details"}</p><p><b>Cottage:</b> {receipt.cottage_name}</p>
-        <p><b>Stay:</b> {receipt.check_in} to {receipt.check_out}</p><p><b>Total:</b> {fmt(receipt.total)}</p>
+        <p><b>Stay:</b> {receipt.check_in} at {receipt.check_in_time} to {receipt.check_out} at {receipt.check_out_time} (Kenya time)</p><p><b>Total:</b> {fmt(receipt.total)}</p>
         <p><b>Cash received:</b> {fmt(receipt.cash_received)}</p><p><b>Outstanding:</b> {fmt(receipt.outstanding)}</p>
         <p><b>Status:</b> {String(receipt.status || "").replaceAll("_", " ")}</p><p><b>Cash receipt:</b> {receipt.receipt || "No cash payment"}</p>
         <p style={{ fontSize: 12 }}>Internal booking acknowledgement; not a tax invoice.</p>

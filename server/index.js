@@ -1256,8 +1256,23 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
     check_in,
     check_out,
     guests,
+    check_in_time,
+    check_out_time,
     notes = ""
   } = req.body || {};
+  const scheduledCheckIn = String(check_in_time || "14:00").trim();
+  const scheduledCheckOut = String(check_out_time || "10:00").trim();
+  if (!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(scheduledCheckIn)) {
+    return res.status(400).json({ error: "Check-in time must be in HH:MM format" });
+  }
+
+  const additionalGuests = req.body?.additional_guests ?? [];
+  if (!Array.isArray(additionalGuests) ||
+      additionalGuests.length !== Number(guests) - 1 ||
+      additionalGuests.some(person => !person || typeof person.name !== "string" ||
+        !person.name.trim() || person.name.trim().length > 80)) {
+    return res.status(400).json({ error: "Enter a name for every accompanying guest." });
+  }
 
   const cottageId = String(cottage_id || "").trim();
   const name = String(guest_name || "").trim();
@@ -1375,6 +1390,8 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
         unit_id,
         check_in,
         check_out,
+        scheduled_check_in_time,
+        scheduled_check_out_time,
         nights,
         guests,
         name,
@@ -1385,13 +1402,15 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
         deposit,
         created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         bookingId,
         bookingRef,
         cottageId,
         check_in,
         check_out,
+        scheduledCheckIn,
+        scheduledCheckOut,
         nights,
         Number(guests),
         name,
@@ -1403,6 +1422,13 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
         Date.now()
       ]
     );
+
+    for (let index = 0; index < additionalGuests.length; index++) {
+      await conn.execute(
+        "INSERT INTO booking_guests (booking_id, guest_order, full_name, phone) VALUES (?, ?, ?, ?)",
+        [bookingId, index + 2, additionalGuests[index].name.trim(), ""]
+      );
+    }
 
     // Ensure every public booking is linked to a CRM customer.
     // Reuse a customer only when a matching contact detail exists.
@@ -1476,7 +1502,30 @@ app.get("/api/admin/bookings", auth, asyncRoute(async (req, res) => {
     ORDER BY b.created_at DESC
   `);
 
-  res.json(bookings);
+  const bookingIds = bookings.map(item => String(item.id));
+  let guestRows = [];
+  if (bookingIds.length) {
+    const placeholders = bookingIds.map(() => "?").join(",");
+    guestRows = await query(
+      `SELECT booking_id, guest_order, full_name, phone FROM booking_guests
+       WHERE booking_id IN (${placeholders}) ORDER BY guest_order`,
+      bookingIds
+    );
+  }
+  const byBooking = new Map();
+  for (const guest of guestRows) {
+    const key = String(guest.booking_id);
+    if (!byBooking.has(key)) byBooking.set(key, []);
+    byBooking.get(key).push({
+      guest_order: guest.guest_order,
+      full_name: guest.full_name,
+      phone: guest.phone
+    });
+  }
+  res.json(bookings.map(item => ({
+    ...item,
+    additional_guests: byBooking.get(String(item.id)) || []
+  })));
 }));
 
 // 
@@ -1902,6 +1951,157 @@ app.post("/api/admin/payments", auth, asyncRoute(async (req, res) => {
     ok: true,
     id: result.insertId
   });
+}));
+
+
+// ADMIN: Collect an outstanding cash/card balance and confirm when fully paid.
+// M-PESA must continue through the separate verified receipt workflow.
+app.post("/api/admin/bookings/:id/collect-balance", auth, asyncRoute(async (req, res) => {
+  const bookingId = String(req.params.id || "");
+  const method = String(req.body?.method || "").toLowerCase();
+  const amount = Number(req.body?.amount);
+  const referenceInput = String(req.body?.reference || "").trim();
+  if (!validId(bookingId) || !["cash", "card"].includes(method) ||
+      !Number.isSafeInteger(amount) || amount <= 0 ||
+      referenceInput.length > 100) {
+    return res.status(400).json({ error: "Valid booking, cash/card method and positive whole-KES amount required" });
+  }
+  // Card payments must be independently confirmed by the payment processor.
+  if (method === "card") {
+    return res.status(400).json({ error: "Card payments must be verified by the card processor before recording them as completed" });
+  }
+  if (req.body?.cash_verified !== true) {
+    return res.status(400).json({ error: "Confirm that the cash has actually been received" });
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.execute(
+      "SELECT id, ref, total, status FROM bookings WHERE id=? FOR UPDATE",
+      [bookingId]
+    );
+    if (!rows.length) {
+      await conn.rollback();
+      return res.status(404).json({ error: "Booking not found" });
+    }
+    const booking = rows[0];
+    if (!["awaiting_payment", "payment_submitted", "confirmed"].includes(booking.status)) {
+      await conn.rollback();
+      return res.status(409).json({ error: "This booking cannot receive a balance payment" });
+    }
+    const [paidRows] = await conn.execute(
+      "SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE booking_id=? AND status='completed'",
+      [bookingId]
+    );
+    const paidBefore = Number(paidRows[0].paid);
+    const outstanding = Math.max(0, Number(booking.total) - paidBefore);
+    if (outstanding < 0.005 || amount > outstanding + 0.005) {
+      await conn.rollback();
+      return res.status(409).json({ error: "Payment exceeds the remaining balance or booking is already paid", outstanding });
+    }
+    const reference = referenceInput || ("CASH-" + crypto.randomBytes(8).toString("hex").toUpperCase());
+    const [duplicates] = await conn.execute(
+      "SELECT id FROM payments WHERE transaction_reference=? LIMIT 1",
+      [reference]
+    );
+    if (duplicates.length) {
+      await conn.rollback();
+      return res.status(409).json({ error: "Payment reference has already been used" });
+    }
+    await conn.execute(
+      `INSERT INTO payments (booking_id,payment_method,amount,transaction_reference,status,paid_at)
+       VALUES (?,'cash',?,?,'completed',NOW())`,
+      [bookingId, amount, reference]
+    );
+    const remaining = Math.max(0, outstanding - amount);
+    if (remaining < 0.005 && booking.status !== "confirmed") {
+      await conn.execute(
+        "UPDATE bookings SET status='confirmed', confirmed_at=? WHERE id=?",
+        [Date.now(), bookingId]
+      );
+    }
+    await conn.commit();
+    return res.status(201).json({
+      ok: true, booking_id: bookingId, booking_reference: booking.ref,
+      method: "cash", amount, reference, paid_total: paidBefore + amount,
+      outstanding: remaining, status: remaining < 0.005 ? "confirmed" : booking.status,
+      can_check_in: remaining < 0.005
+    });
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}));
+
+// ADMIN: Record verified cash balance, confirm booking when fully settled.
+// Card and M-PESA payments require independent verification.
+app.post("/api/admin/bookings/:id/settle-balance", auth, asyncRoute(async (req, res) => {
+  const bookingId = String(req.params.id || "");
+  const method = String(req.body?.method || "").toLowerCase();
+  const amount = Number(req.body?.amount);
+  const referenceInput = String(req.body?.reference || "").trim();
+  if (!validId(bookingId) || !["cash", "card"].includes(method) ||
+      !Number.isSafeInteger(amount) || amount <= 0 || referenceInput.length > 100) {
+    return res.status(400).json({ error: "Valid booking, method and positive whole-KES amount required" });
+  }
+  if (method === "card") {
+    return res.status(400).json({ error: "Card payments must be verified by the card processor before recording them as completed" });
+  }
+  if (req.body?.cash_verified !== true) {
+    return res.status(400).json({ error: "Confirm that the cash has actually been received" });
+  }
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.execute(
+      "SELECT id, ref, total, status FROM bookings WHERE id=? FOR UPDATE", [bookingId]);
+    if (!rows.length) {
+      await conn.rollback();
+      return res.status(404).json({ error: "Booking not found" });
+    }
+    const booking = rows[0];
+    if (!["awaiting_payment", "payment_submitted"].includes(booking.status)) {
+      await conn.rollback();
+      return res.status(409).json({ error: "Booking is not eligible for balance settlement" });
+    }
+    const [paidRows] = await conn.execute(
+      "SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE booking_id=? AND status='completed'", [bookingId]);
+    const paidBefore = Number(paidRows[0].paid);
+    const outstanding = Math.round((Number(booking.total) - paidBefore) * 100) / 100;
+    if (outstanding <= 0 || amount > outstanding) {
+      await conn.rollback();
+      return res.status(409).json({ error: "Payment exceeds the remaining balance or booking is already paid", outstanding });
+    }
+    const reference = referenceInput || ("CASH-" + crypto.randomBytes(8).toString("hex").toUpperCase());
+    const [duplicates] = await conn.execute(
+      "SELECT id FROM payments WHERE transaction_reference=? LIMIT 1", [reference]);
+    if (duplicates.length) {
+      await conn.rollback();
+      return res.status(409).json({ error: "Payment reference has already been used" });
+    }
+    await conn.execute(
+      `INSERT INTO payments (booking_id,payment_method,amount,transaction_reference,status,paid_at)
+       VALUES (?,'cash',?,?,'completed',NOW())`, [bookingId, amount, reference]);
+    const remaining = Math.round((outstanding - amount) * 100) / 100;
+    if (remaining === 0) {
+      await conn.execute(
+        "UPDATE bookings SET status='confirmed', confirmed_at=? WHERE id=?", [Date.now(), bookingId]);
+    }
+    await conn.commit();
+    return res.status(201).json({
+      ok: true, booking_id: bookingId, booking_reference: booking.ref,
+      method: "cash", amount, reference, paid_total: paidBefore + amount,
+      outstanding: remaining, status: remaining === 0 ? "confirmed" : booking.status,
+      can_check_in: remaining === 0
+    });
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
 }));
 
 // GUEST: Submit M-PESA receipt for admin review
@@ -2390,7 +2590,17 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
   const cottageId = String(data.cottage_id || "").trim();
   const start = String(data.check_in || "");
   const end = String(data.check_out || "");
+  const checkInTime = String(data.check_in_time || "14:00");
+  const checkOutTime = String(data.check_out_time || "10:00");
   const guests = Number(data.guests);
+  const additionalGuests = data.additional_guests ?? [];
+  if (!Array.isArray(additionalGuests) ||
+      (additionalGuests.length > 0 && additionalGuests.length !== guests - 1) ||
+      additionalGuests.some(person => !person || typeof person.name !== "string" ||
+        !person.name.trim() || person.name.trim().length > 80 ||
+        (person.phone != null && (typeof person.phone !== "string" || person.phone.length > 30)))) {
+    return res.status(400).json({ error: "Invalid accompanying guest details." });
+  }
   const cashReceived = Number(data.cash_received ?? 0);
   const notes = String(data.notes || "").trim();
   const verified = data.cash_verified === true;
@@ -2398,6 +2608,8 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
   if (!name || name.length > 80 || !phone || phone.length > 20 ||
     (email && (email.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) ||
     !validCottageId(cottageId) || !validDate(start) || !validDate(end) ||
+    !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(checkInTime) ||
+    !/^([01]\\d|2[0-3]):[0-5]\\d$/.test(checkOutTime) ||
     !Number.isInteger(days) || days < 1 || !Number.isInteger(guests) || guests < 1 ||
     !Number.isSafeInteger(cashReceived) || cashReceived < 0 ||
     (cashReceived > 0 && !verified) || notes.length > 300) {
@@ -2464,10 +2676,17 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
     }
     await conn.execute(
       `INSERT INTO bookings
-       (id,ref,unit_id,check_in,check_out,nights,guests,name,phone,email,notes,total,deposit,status,source,created_at,confirmed_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [bookingId, bookingRef, cottageId, start, end, days, guests, name, phone, email, notes, total, 0, status, "admin", now, status === "confirmed" ? now : null]
+       (id,ref,unit_id,check_in,check_out,scheduled_check_in_time,scheduled_check_out_time,nights,guests,name,phone,email,notes,total,deposit,status,source,created_at,confirmed_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [bookingId, bookingRef, cottageId, start, end, checkInTime, checkOutTime, days, guests, name, phone, email, notes, total, 0, status, "admin", now, status === "confirmed" ? now : null]
     );
+    for (let index = 0; index < additionalGuests.length; index++) {
+      await conn.execute(
+        "INSERT INTO booking_guests (booking_id, guest_order, full_name, phone) VALUES (?, ?, ?, ?)",
+        [bookingId, index + 2, additionalGuests[index].name.trim(), String(additionalGuests[index].phone || "").trim()]
+      );
+    }
+
     // Link the booking to the CRM customer
     await conn.execute(
       `INSERT INTO crm_customer_bookings
@@ -2493,6 +2712,8 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
       cottage_name: cottage.name,
       check_in: start,
       check_out: end,
+      check_in_time: checkInTime,
+      check_out_time: checkOutTime,
       nights: days,
       total,
       cash_received: cashReceived,

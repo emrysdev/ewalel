@@ -238,6 +238,92 @@ function today() {
   ].join("-");
 }
 
+
+// Public availability calendar: reads the same live booking/maintenance data as reception.
+function PublicAvailabilityCalendar({ cottageId, checkIn, checkOut, onDatesChange, onReadyChange }) {
+  const [periods, setPeriods] = useState([]);
+  const [status, setStatus] = useState("idle");
+  const [message, setMessage] = useState("");
+  const [month, setMonth] = useState(() => (checkIn || kenyaToday()).slice(0, 7));
+  const [choosing, setChoosing] = useState("checkin");
+  const now = kenyaToday();
+
+  useEffect(() => {
+    if (!cottageId) { setPeriods([]); setStatus("idle"); onReadyChange(false); return; }
+    const controller = new AbortController();
+    setPeriods([]); setStatus("loading"); setMessage(""); onReadyChange(false);
+    setMonth(kenyaToday().slice(0, 7));
+    fetch(`${API}/api/cottages/${encodeURIComponent(cottageId)}/availability`, { signal: controller.signal })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `Availability request failed (${response.status})`);
+        const raw = data.blocked_periods ?? data.blocked;
+        if (!Array.isArray(raw)) throw new Error("Availability data was not returned by the server.");
+        const parsed = raw.map(p => ({ start: String(p.start || "").slice(0, 10), end: String(p.end || "").slice(0, 10), type: p.type === "maintenance" ? "maintenance" : "booking" }));
+        if (parsed.some(p => !/^\d{4}-\d{2}-\d{2}$/.test(p.start) || !/^\d{4}-\d{2}-\d{2}$/.test(p.end) || p.end <= p.start)) throw new Error("Invalid blocked dates returned by server.");
+        if (!controller.signal.aborted) { setPeriods(parsed); setStatus("ready"); onReadyChange(true); }
+      })
+      .catch(error => { if (!controller.signal.aborted) { setStatus("error"); setMessage(error.message); onReadyChange(false); } });
+    return () => controller.abort();
+  }, [cottageId, onReadyChange]);
+
+  const conflict = (start, end) => periods.find(p => start < p.end && end > p.start);
+  const blockedAt = iso => periods.find(p => p.start <= iso && iso < p.end)?.type;
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (checkIn && (checkIn < kenyaToday() || blockedAt(checkIn))) { onDatesChange("", ""); setChoosing("checkin"); }
+    else if (checkIn && checkOut && conflict(checkIn, checkOut)) { onDatesChange(checkIn, ""); setChoosing("checkout"); }
+  }, [status, periods, checkIn, checkOut, onDatesChange]);
+
+  const [year, mon] = month.split("-").map(Number);
+  const offset = (new Date(Date.UTC(year, mon - 1, 1)).getUTCDay() + 6) % 7;
+  const days = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+  const monthTitle = new Date(Date.UTC(year, mon - 1, 1)).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+  const shift = delta => setMonth(new Date(Date.UTC(year, mon - 1 + delta, 1)).toISOString().slice(0, 7));
+  const pick = iso => {
+    if (status !== "ready" || iso < now) return;
+    const blocked = blockedAt(iso);
+    if (choosing === "checkin" || !checkIn) {
+      if (blocked) { setMessage(blocked === "maintenance" ? "This cottage is under maintenance on that date." : "This cottage is already booked on that date."); return; }
+      onDatesChange(iso, ""); setChoosing("checkout"); setMessage("Now select your check-out date."); return;
+    }
+    if (iso <= checkIn) { setMessage("Check-out must be after check-in."); return; }
+    const overlapping = conflict(checkIn, iso);
+    if (overlapping) { setMessage("The selected stay overlaps a booked or maintenance period."); return; }
+    onDatesChange(checkIn, iso); setChoosing("checkin"); setMessage("Dates selected. Complete your reservation below.");
+  };
+  const swatch = (color, text) => <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12 }}><span style={{ width: 12, height: 12, background: color, borderRadius: 3, border: "1px solid #cbd8d5" }} />{text}</span>;
+  return <section aria-label="Cottage availability" style={{ gridColumn: "1 / -1", border: "1px solid #d8e4e1", borderRadius: 14, padding: 16, display: "grid", gap: 12 }}>
+    <strong style={{ color: "#103f43" }}>Cottage availability</strong>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <button type="button" aria-label="Previous month" onClick={() => shift(-1)} style={{ border: 0, background: "transparent", cursor: "pointer", fontSize: 25 }}>‹</button>
+      <strong>{monthTitle}</strong>
+      <button type="button" aria-label="Next month" onClick={() => shift(1)} style={{ border: 0, background: "transparent", cursor: "pointer", fontSize: 25 }}>›</button>
+    </div>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(7,minmax(0,1fr))", gap: 5 }}>
+      {["M", "T", "W", "T", "F", "S", "S"].map((day, i) => <span key={`weekday-${i}`} style={{ textAlign: "center", fontSize: 12, color: "#64748b" }}>{day}</span>)}
+      {Array.from({ length: offset }, (_, i) => <span key={`blank-${i}`} />)}
+      {Array.from({ length: days }, (_, i) => {
+        const iso = `${month}-${String(i + 1).padStart(2, "0")}`;
+        const type = blockedAt(iso);
+        const past = iso < now;
+        const selected = iso === checkIn || iso === checkOut;
+        const within = checkIn && checkOut && iso > checkIn && iso < checkOut;
+        const color = status !== "ready" ? "#eef1f0" : type === "booking" ? "#f4b9b5" : type === "maintenance" ? "#f2d397" : selected ? "#15565b" : within ? "#c8e9dc" : "#edf6f1";
+        return <button type="button" key={iso} disabled={past || status !== "ready"} onClick={() => pick(iso)} title={type === "booking" ? "Booked" : type === "maintenance" ? "Maintenance" : "Available"} style={{ height: 39, minWidth: 0, borderRadius: 7, border: selected ? "2px solid #0d3439" : "1px solid transparent", background: color, color: selected && !type ? "white" : "#17383e", opacity: past ? 0.4 : 1, cursor: past || status !== "ready" ? "not-allowed" : "pointer", fontWeight: selected ? 700 : 400 }}>{i + 1}</button>;
+      })}
+    </div>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 13 }}>{swatch("#edf6f1", "Available")}{swatch("#f4b9b5", "Booked")}{swatch("#f2d397", "Maintenance")}{swatch("#c8e9dc", "Selected stay")}</div>
+    {!cottageId && <small>Select a cottage to view availability.</small>}
+    {status === "loading" && <small role="status">Loading live cottage availability…</small>}
+    {status === "error" && <small role="alert" style={{ color: "#a32a2a" }}>Unable to verify availability: {message}. Booking is disabled until availability is available.</small>}
+    {status === "ready" && message && <small role="status">{message}</small>}
+    <small style={{ color: "#64748b" }}>Select check-in first, then check-out. A check-out date may coincide with the next guest's arrival.</small>
+  </section>;
+}
+
+const kenyaToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+
 function Logo({ onClick }) {
   const [logoFailed, setLogoFailed] = useState(false);
 
@@ -299,8 +385,27 @@ export default function Guest() {
 
   const [chosen, setChosen] = useState("");
   const [checkin, setCheckin] = useState("");
+  const [checkinTime, setCheckinTime] = useState("14:00");
+  const [checkoutTime, setCheckoutTime] = useState("10:00");
   const [checkout, setCheckout] = useState("");
   const [guests, setGuests] = useState("2");
+  const [additionalGuests, setAdditionalGuests] = useState([]);
+  function changeGuestCount(value) {
+    setGuests(value);
+    const count = Number(value);
+    if (!Number.isInteger(count) || count < 1 || count > 50) return;
+    setAdditionalGuests(previous =>
+      Array.from({ length: count - 1 }, (_, i) => previous[i] || { name: "" })
+    );
+  }
+  function updateAdditionalGuest(index, value) {
+    setAdditionalGuests(previous =>
+      previous.map((guest, i) => i === index ? { ...guest, name: value } : guest)
+    );
+  }
+  const [availabilityReady, setAvailabilityReady] = useState(false);
+  const changeAvailabilityReady = React.useCallback(value => setAvailabilityReady(value), []);
+  const changeCalendarDates = React.useCallback((start, end) => { setCheckin(start); setCheckout(end); }, []);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -369,6 +474,8 @@ export default function Guest() {
 
   const total = Number(cottage?.nightly_rate || 0) * nights;
 
+  useEffect(() => { setCheckin(""); setCheckout(""); setAvailabilityReady(false); }, [chosen]);
+
   function navigate(nextPage) {
     setPage(nextPage);
     setMenuOpen(false);
@@ -385,6 +492,8 @@ export default function Guest() {
       return;
     }
 
+    if (!availabilityReady) { setError("Cottage availability could not be verified. Please try again."); return; }
+
     if (!nights || checkin < today()) {
       setError("Please select valid booking dates.");
       return;
@@ -392,6 +501,16 @@ export default function Guest() {
 
     if (Number(guests) > Number(cottage.capacity)) {
       setError("Guest count exceeds cottage capacity.");
+      return;
+    }
+
+    if (!Number.isInteger(Number(guests)) || Number(guests) < 1) {
+      setError("Please enter a valid number of guests.");
+      return;
+    }
+    if (additionalGuests.length !== Number(guests) - 1 ||
+        additionalGuests.some(guest => !guest.name.trim())) {
+      setError("Please enter the full name of every additional guest.");
       return;
     }
 
@@ -410,7 +529,10 @@ export default function Guest() {
           guest_phone: phone,
           check_in: checkin,
           check_out: checkout,
-          guests: Number(guests)
+          check_in_time: checkinTime || "14:00",
+          check_out_time: checkoutTime || "10:00",
+          guests: Number(guests),
+          additional_guests: additionalGuests.map(guest => ({ name: guest.name.trim() }))
         })
       });
 
@@ -856,57 +978,106 @@ export default function Guest() {
           <form className="ew-booking-form" onSubmit={reserve}>
             <h2>Stay details</h2>
 
-            <div className="ew-form-grid">
-              <label>
-                Cottage
-                <select
-                  required
-                  value={chosen}
-                  onChange={(e) => setChosen(e.target.value)}
-                >
-                  <option value="">Select cottage</option>
-                  {cottages.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} — {money(c.nightly_rate)}/night
-                    </option>
-                  ))}
-                </select>
-              </label>
+            
+<div
+  className="ew-form-grid"
+  style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}
+>
+  {/* COTTAGE - FULL WIDTH */}
+  <label style={{ gridColumn: "1 / -1" }}>
+    Cottage
+    <select
+      required
+      value={chosen}
+      onChange={(e) => setChosen(e.target.value)}
+    >
+      <option value="">Select cottage</option>
+      {cottages.map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.name} — {money(c.nightly_rate)}/night
+        </option>
+      ))}
+    </select>
+  </label>
 
-              <label>
-                Check-in
-                <input
-                  required
-                  type="date"
-                  min={today()}
-                  value={checkin}
-                  onChange={(e) => setCheckin(e.target.value)}
-                />
-              </label>
+  {/* CHECK-IN DATE */}
+  <label>
+    Check-in date
+    <input
+      required
+      type="date"
+      min={today()}
+      value={checkin}
+      onChange={(e) => setCheckin(e.target.value)}
+    />
+  </label>
 
-              <label>
-                Check-out
-                <input
-                  required
-                  type="date"
-                  min={checkin || today()}
-                  value={checkout}
-                  onChange={(e) => setCheckout(e.target.value)}
-                />
-              </label>
+  {/* CHECK-IN TIME */}
+  <label>
+    Check-in time
+    <input
+      type="time"
+      value={checkinTime}
+      onChange={(e) => setCheckinTime(e.target.value)}
+    />
+  </label>
 
-              <label>
-                Guests
-                <input
-                  required
-                  type="number"
-                  min="1"
-                  max={cottage?.capacity || 10}
-                  value={guests}
-                  onChange={(e) => setGuests(e.target.value)}
-                />
-              </label>
-            </div>
+  {/* CHECK-OUT DATE */}
+  <label>
+    Check-out date
+    <input
+      required
+      type="date"
+      min={checkin || today()}
+      value={checkout}
+      onChange={(e) => setCheckout(e.target.value)}
+    />
+  </label>
+
+  {/* CHECK-OUT TIME */}
+  <label>
+    Check-out time
+    <input
+      type="time"
+      value={checkoutTime}
+      onChange={(e) => setCheckoutTime(e.target.value)}
+    />
+  </label>
+
+  <PublicAvailabilityCalendar
+    cottageId={chosen}
+    checkIn={checkin}
+    checkOut={checkout}
+    onDatesChange={changeCalendarDates}
+    onReadyChange={changeAvailabilityReady}
+  />
+
+  {/* NUMBER OF GUESTS - FULL WIDTH */}
+  <label style={{ gridColumn: "1 / -1" }}>
+    Number of guests
+    <input
+      required
+      type="number"
+      min="1"
+      max={cottage?.capacity || 10}
+      value={guests}
+      onChange={(e) => changeGuestCount(e.target.value)}
+    />
+  </label>
+
+  <p
+    style={{
+      gridColumn: "1 / -1",
+      margin: 0,
+      fontSize: 13,
+      color: "#64748b"
+    }}
+  >
+    Standard check-in: 2:00 PM · Check-out: 10:00 AM
+    (Kenya time).
+  </p>
+</div>
+
 
             <div className="ew-booking-total">
               <span>
@@ -950,6 +1121,43 @@ export default function Guest() {
               </label>
             </div>
 
+            {Number(guests) > 1 && (
+              <section aria-label="Additional guests" style={{
+                marginTop: 22, marginBottom: 26, display: "grid", gap: 14
+              }}>
+                <h3 style={{ margin: 0, color: "#123944", fontSize: 22 }}>
+                  Additional guests
+                </h3>
+                <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>
+                  The primary guest is listed above. Enter the names of the other
+                  {Number(guests) - 1 === 1 ? " guest." : ` ${Number(guests) - 1} guests.`}
+                </p>
+                {additionalGuests.map((guest, index) => (
+                  <div key={index} style={{
+                    padding: 18, border: "1px solid #d8e4e1",
+                    borderRadius: 12, background: "#f6faf8"
+                  }}>
+                    <label style={{ display: "grid", gap: 9, fontWeight: 600 }}>
+                      Guest {index + 2} — Full name
+                      <input
+                        type="text"
+                        required
+                        maxLength={80}
+                        placeholder={`Full name of guest ${index + 2}`}
+                        value={guest.name}
+                        onChange={(e) => updateAdditionalGuest(index, e.target.value)}
+                        style={{
+                          width: "100%", padding: "15px 16px",
+                          border: "1px solid #d4dedd", borderRadius: 10,
+                          background: "#fff", boxSizing: "border-box"
+                        }}
+                      />
+                    </label>
+                  </div>
+                ))}
+              </section>
+            )}
+
             <h2>Preferred payment method</h2>
 
             <div className="ew-payment-methods">
@@ -985,7 +1193,7 @@ export default function Guest() {
             <button
               type="submit"
               className="ew-primary-button"
-              disabled={busy || !nights || !cottage}
+              disabled={busy || !nights || !cottage || !availabilityReady}
             >
               {busy ? "Submitting..." : "Request reservation"}
               <ArrowRight size={18} />

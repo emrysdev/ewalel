@@ -1,4 +1,15 @@
 
+// Scheduled booking times are in Kenya local time. Missing legacy values use standard times.
+function formatScheduledTime(value, fallback) {
+  const raw = String(value || fallback).trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return formatScheduledTime(fallback, fallback);
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return formatScheduledTime(fallback, fallback);
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+}
+
 import { useState, useEffect, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -19,6 +30,9 @@ import {
 } from "lucide-react";
 
 import "./style.css";
+import "./analytics-dashboard.css";
+import "./ewalel-sidebar.css";
+import AnalyticsDashboard from "./components/AnalyticsDashboard.jsx";
 import FacilitiesPanel from "./components/FacilitiesPanel.jsx";
 import ReportsSuite from "./components/ReportsSuite.jsx";
 import Guest from "./Guest.jsx";
@@ -40,16 +54,18 @@ const BASE = (
 ).replace(/\/$/, "");
 
 
+const IMAGE_BASE = (
+  import.meta.env.VITE_IMAGE_BASE_URL ||
+  "https://robust-generosity-production-7f17.up.railway.app"
+).replace(/\/$/, "");
+
 function getImageUrl(photoUrl) {
   if (!photoUrl) return "";
 
-  // Keep existing full image URLs
-  if (/^https?:\/\//i.test(photoUrl)) {
-    return photoUrl;
-  }
+  const value = String(photoUrl).trim();
+  if (/^https?:\/\//i.test(value)) return value;
 
-  // Convert relative image paths into backend URLs
-  return `${BASE}/${String(photoUrl).replace(/^\/+/, "")}`;
+  return `${IMAGE_BASE}/${value.replace(/^\/+/, "")}`;
 }
 
 async function api(path, options = {}, token) {
@@ -98,21 +114,27 @@ const money = (value) =>
   "KES " + Number(value || 0).toLocaleString("en-KE");
 
 const tabs = [
-  ["Overview", LayoutDashboard],
+  ["Dashboard", LayoutDashboard],
   ["Reservations", CalendarDays],
   ["Cottages", House],
+  ["Guests", Users],
   ["Finance", Wallet],
-  ["Reports", FileBarChart],
+  ["Reports & Analytics", FileBarChart],
   ["Facilities & Amenities", House],
+  ["Maintenance", Wrench],
+  ["Settings", Wrench],
 ];
 
 const sections = {
-  Overview: ["Dashboard", "Operations"],
-  Reservations: ["Bookings", "Guests", "Booking Confirmation"],
-  Cottages: ["Manage cottages", "Maintenance"],
+  Dashboard: ["Dashboard"],
+  Reservations: ["Bookings", "Booking Confirmation"],
+  Cottages: ["Manage cottages"],
+  Guests: ["Guests"],
   Finance: ["Revenue & payments"],
-  Reports: ["Analytics & exports"],
+  "Reports & Analytics": ["Analytics & exports"],
   "Facilities & Amenities": ["Facilities"],
+  Maintenance: ["Maintenance"],
+  Settings: ["Settings"],
 };
 
 const emptyMaintenance = {
@@ -148,9 +170,10 @@ function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const [tab, setTab] = useState("Reservations");
-  const [sub, setSub] = useState("Bookings");
+  const [tab, setTab] = useState("Dashboard");
+  const [sub, setSub] = useState("Dashboard");
   const [mobile, setMobile] = useState(false);
+  const [cottagesExpanded, setCottagesExpanded] = useState(false);
 
   const [cottages, setCottages] = useState([]);
   const [records, setRecords] = useState([]);
@@ -406,20 +429,28 @@ function App() {
   return (
     <div className="ew-suite-shell">
       <aside className={`ew-suite-sidebar ${mobile ? "is-open" : ""}`} aria-label="Main administration navigation">
-        <div className="ew-suite-logo"><img src="/images/ewalel-logo.png" alt="Ewalel Cottages" /><span>EWΑLEL<small>COTTAGES</small></span></div>
-        <div className="ew-suite-side-group">
-          <div className="ew-suite-side-heading">ACCOMMODATION</div>
-          <button className={tab === "Cottages" ? "is-parent" : ""} onClick={() => { setTab("Cottages"); setSub("Manage cottages"); setMobile(false); }}><House size={18} /> Cottages <ChevronDown size={14} className="ew-side-chevron" /></button>
-          <button className={tab === "Cottages" && sub === "Manage cottages" ? "is-selected is-child" : "is-child"} onClick={() => { setTab("Cottages"); setSub("Manage cottages"); setMobile(false); }}><House size={17} /> Properties</button>
-          <button className={tab === "Cottages" && sub === "Maintenance" ? "is-selected is-child" : "is-child"} onClick={() => { setTab("Cottages"); setSub("Maintenance"); setMobile(false); }}><Wrench size={17} /> Maintenance</button>
-          <button className={tab === "Facilities & Amenities" ? "is-selected is-child" : "is-child"} onClick={() => { setTab("Facilities & Amenities"); setSub("Facilities"); setMobile(false); }}><House size={17} /> Facilities & Amenities</button>
+        <div className="ew-suite-logo">
+          <img src="/images/ewalel-logo.png" alt="Ewalel Cottages" />
+          <span>EWALEL<small>COTTAGES</small></span>
         </div>
-        <div className="ew-suite-side-group ew-suite-side-other">
-          <button className={tab === "Overview" ? "is-selected" : ""} onClick={() => { setTab("Overview"); setSub("Dashboard"); setMobile(false); }}><LayoutDashboard size={18} /> Overview</button>
-          <button className={tab === "Reservations" && sub !== "Guests" ? "is-selected" : ""} onClick={() => { setTab("Reservations"); setSub("Bookings"); setMobile(false); }}><CalendarDays size={18} /> Reservations</button>
-          <button className={tab === "Reservations" && sub === "Guests" ? "is-selected" : ""} onClick={() => { setTab("Reservations"); setSub("Guests"); setMobile(false); }}><Users size={18} /> Guests</button>
-          <button className={tab === "Finance" ? "is-selected" : ""} onClick={() => { setTab("Finance"); setSub("Revenue & payments"); setMobile(false); }}><Wallet size={18} /> Finance</button>
-          <button className={tab === "Reports" ? "is-selected" : ""} onClick={() => { setTab("Reports"); setSub("Analytics & exports"); setMobile(false); }}><FileBarChart size={18} /> Reports</button>
+        <div className="ew-suite-side-group ew-modern-nav">
+          <div className="ew-suite-side-heading">ADMINISTRATION</div>
+          {tabs.map(([name, Icon]) => (
+            <div key={name} className="ew-nav-item">
+              <button type="button" className={`ew-nav-link ${tab === name ? "is-selected" : ""}`}
+                aria-current={tab === name ? "page" : undefined}
+                aria-expanded={name === "Cottages" ? cottagesExpanded : undefined}
+                onClick={() => {
+                  if (name === "Cottages") setCottagesExpanded(v => !v);
+                  setTab(name); setSub(sections[name][0]); setMobile(false);
+                  setFormOpen(false); setNotice(""); setError("");
+                }}>
+                <Icon size={19} strokeWidth={1.9} /> <span>{name}</span>
+                {/* {name === "Cottages" && <ChevronDown size={16} className={`ew-nav-chevron ${cottagesExpanded ? "expanded" : ""}`} />} */}
+              </button>
+              
+            </div>
+          ))}
         </div>
         <div className="ew-suite-side-foot">LAKE ELEMENTAITA · KENYA</div>
       </aside>
@@ -516,7 +547,20 @@ function App() {
             COTTAGE MANAGEMENT
         =========================================== */}
 
-          {tab === "Facilities & Amenities" ? (
+          {tab === "Dashboard" ? (
+            <AnalyticsDashboard
+              bookings={bookings}
+              payments={payments}
+              cottages={cottages}
+              finance={finance}
+              onRefresh={refresh}
+              onNavigate={(nextTab, nextSub) => {
+                setTab(nextTab);
+                setSub(nextTab === "Maintenance" ? "Maintenance" : (nextSub || sections[nextTab]?.[0] || "Dashboard"));
+                setMobile(false);
+              }}
+            />
+          ) : tab === "Facilities & Amenities" ? (
             <FacilitiesPanel />
           ) : tab === "Cottages" &&
             sub === "Manage cottages" ? (
@@ -528,8 +572,7 @@ function App() {
               maintenance={records}
             />
 
-          ) : tab === "Cottages" &&
-            sub === "Maintenance" ? (
+          ) : tab === "Maintenance" ? (
             <>
               <div className="page-title">
                 <div>
@@ -940,9 +983,9 @@ function App() {
               </section>
             </>
 
-          ) : tab === "Reservations" ? (
+          ) : tab === "Reservations" || tab === "Guests" ? (
             <ReservationsPanel
-              sub={sub}
+              sub={tab === "Guests" ? "Guests" : sub}
               cottages={cottages}
               bookings={bookings}
               payments={payments}
@@ -953,8 +996,7 @@ function App() {
               openConfirmation={() => setSub("Booking Confirmation")}
             />
 
-          ) : tab === "Finance" ||
-            tab === "Overview" ? (
+          ) : tab === "Finance" ? (
             <>
               <div className="page-title">
                 <div>
@@ -1244,6 +1286,11 @@ function App() {
               )}
             </>
 
+          ) : tab === "Settings" ? (
+            <section className="panel">
+              <h1>Settings</h1>
+              <p>Administrator configuration is managed through your existing backend and Railway environment variables. No credentials are displayed here.</p>
+            </section>
           ) : (
             <ReportsSuite bookings={bookings} payments={payments} cottages={cottages} maintenance={records} />
           )}
@@ -1269,6 +1316,90 @@ const reservationStyle = {
   pill: { fontSize: 11, padding: "5px 10px", borderRadius: 30, background: "#fff3d9", color: "#805513", fontWeight: 700 },
 };
 
+
+
+// Outstanding balance collection: server validates amount and confirms booking atomically.
+function GuestBalancePayment({ booking, payments, receipts, token, refresh, reloadExtra, onError, onNotice }) {
+  const verified = payments.filter(p => String(p.booking_id) === String(booking.id) && p.status === "completed")
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const total = Number(booking.total ?? booking.total_amount ?? 0);
+  const balance = Math.max(0, Math.round((total - verified) * 100) / 100);
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("cash");
+  const [reference, setReference] = useState("");
+  const [evidence, setEvidence] = useState("");
+  const [attested, setAttested] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const money = n => `KES ${Number(n || 0).toLocaleString("en-KE", { maximumFractionDigits: 2 })}`;
+  const pending = receipts.find(r => String(r.booking_id) === String(booking.id) && r.status === "pending");
+  const pendingReceipt = String(pending?.receipt_number || "").toUpperCase();
+  const validMpesaReceipt = /^[A-Z0-9]{8,20}$/.test(reference.trim().toUpperCase());
+  if (booking.status === "cancelled") return null;
+  async function submit(e) {
+    e.preventDefault();
+    const paid = Number(amount);
+    if (!Number.isSafeInteger(paid) || paid <= 0 || paid > balance) {
+      onError("Enter a positive whole-KES amount not exceeding the outstanding balance."); return;
+    }
+    if (method === "card") { onError("Card payments must be confirmed by your payment processor."); return; }
+    if (method === "mpesa") {
+      if (paid !== balance) { onError("The existing M-PESA verification endpoint requires the verified amount to equal the full outstanding balance."); return; }
+      if (!pending && !validMpesaReceipt) { onError("Enter a valid M-PESA receipt number (8–20 letters/numbers)."); return; }
+      if (pending && (evidence.trim().length < 5 || !attested)) { onError("Enter independent Safaricom verification evidence and confirm that you checked it."); return; }
+    } else if (!reference.trim()) { onError("Enter the cash receipt/reference number."); return; }
+    const action = method === "mpesa" ? pending ? "Verify M-PESA payment" : "Submit M-PESA receipt for verification" : "Record cash payment";
+    if (!window.confirm(`${action}: ${money(paid)} for booking ${booking.ref || booking.id}?`)) return;
+    setSaving(true);
+    try {
+      let message;
+      if (method === "mpesa" && pending) {
+        await api("/admin/mpesa/verify", { method: "POST", body: JSON.stringify({
+          receipt_number: pendingReceipt, verified_amount: paid, verification_reference: evidence.trim()
+        }) }, token);
+        message = "M-PESA payment verified and booking confirmed. Check In Guest is now available.";
+      } else if (method === "mpesa") {
+        await api("/admin/mpesa/record", { method: "POST", body: JSON.stringify({
+          booking_id: booking.id, receipt_number: reference.trim().toUpperCase()
+        }) }, token);
+        message = "M-PESA receipt recorded as pending. Verify it against Safaricom, then confirm it here before check-in.";
+      } else {
+        const result = await api(`/admin/bookings/${encodeURIComponent(booking.id)}/settle-balance`, {
+          method: "POST", body: JSON.stringify({ amount: paid, method: "cash", reference: reference.trim(), cash_verified: true })
+        }, token);
+        message = result?.can_check_in ? "Balance paid and booking confirmed. Check In Guest is now available." : "Part payment recorded. Outstanding balance updated.";
+      }
+      setAmount(""); setReference(""); setEvidence(""); setAttested(false);
+      await refresh(); await reloadExtra();
+      onNotice(message);
+    } catch (err) { onError(err.message); } finally { setSaving(false); }
+  }
+  return <div style={{ marginTop: 14, padding: 16, border: "1px solid #c8dfd8", borderRadius: 12, background: "#fff" }}>
+    <h4 style={{ margin: "0 0 12px" }}>Guest Payment Management</h4>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 14 }}>
+      <div><small>Booking total</small><div><strong>{money(total)}</strong></div></div>
+      <div><small>Verified payments</small><div><strong>{money(verified)}</strong></div></div>
+      <div><small>Outstanding balance</small><div><strong>{money(balance)}</strong></div></div>
+    </div>
+    {balance <= 0 ? <p style={{ color: "#087444", margin: 0 }}>Balance fully paid{booking.status === "confirmed" ? " · Booking confirmed" : " · Awaiting booking reconciliation"}.</p> :
+      <form onSubmit={submit}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 12 }}>
+          <label>Payment received (KES)<input className="crm-input" type="number" step="1" min="1" max={balance} required value={amount} onChange={e => setAmount(e.target.value)} placeholder={String(balance)} /></label>
+          <label>Payment method<select className="crm-input" value={method} onChange={e => { setMethod(e.target.value); setReference(""); }}><option value="cash">Cash</option><option value="mpesa">M-PESA</option><option value="card">Card (processor verification required)</option></select></label>
+          <label>{method === "mpesa" ? "M-PESA receipt number" : "Receipt / transaction reference"}<input className="crm-input" required={method !== "mpesa" || !pending} disabled={method === "mpesa" && !!pending} value={method === "mpesa" && pending ? pendingReceipt : reference} onChange={e => setReference(e.target.value)} placeholder={method === "mpesa" ? "Safaricom receipt number" : "Receipt number"} /></label>
+        </div>
+        {method === "mpesa" && (pending ? <div style={{ marginTop: 12 }}>
+          <p><strong>Pending M-PESA receipt: {pendingReceipt}</strong>. Verify this payment independently against your Safaricom statement before confirming.</p>
+          <label>Independent verification reference<input className="crm-input" value={evidence} onChange={e => setEvidence(e.target.value)} placeholder="Safaricom statement or transaction verification reference" required minLength={5} /></label>
+          <label style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}><input type="checkbox" checked={attested} onChange={e => setAttested(e.target.checked)} /> I have independently verified the receipt, amount and booking.</label>
+        </div> : <p style={{ fontSize: 12, color: "#668086" }}>Step 1: Submit the M-PESA receipt. Step 2: Verify it independently, then confirm payment. Submission alone does not enable check-in.</p>)}
+        {method === "cash" && <p style={{ fontSize: 12, color: "#668086" }}>Only confirm cash actually received. Full settlement automatically enables check-in after refresh.</p>}
+        {method === "card" && <p style={{ fontSize: 12, color: "#92520a" }}>Card settlement is disabled until a verified card processor integration is available.</p>}
+        <button type="submit" className="crm-btn crm-primary" disabled={saving || !amount || method === "card" || (method === "mpesa" && pending && (!attested || evidence.trim().length < 5)) || (method === "mpesa" && !pending && !validMpesaReceipt) || (method === "cash" && !reference.trim())}>
+          {saving ? "Processing…" : method === "mpesa" ? pending ? "Verify M-PESA & Confirm Payment" : "Submit M-PESA Receipt" : Number(amount) === balance ? "Confirm Complete Payment" : "Record Part Payment"}
+        </button>
+      </form>}
+  </div>;
+}
 
 function CustomerRetention({ bookings, payments, cottages, token, onError, onNotice, refresh }) {
   const [query, setQuery] = useState("");
@@ -1332,6 +1463,17 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   useEffect(() => { reloadExtra().catch(e => onError(e.message)); }, [reloadExtra]);
   const fmt = n => "KES " + Number(n || 0).toLocaleString("en-KE", { maximumFractionDigits: 2 });
   const date = v => { if (!v) return "Not recorded"; const d = new Date(v); return Number.isNaN(+d) ? String(v).slice(0, 16) : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Africa/Nairobi" }); };
+  // Actual stay timestamps are separate from scheduled reservation dates.
+  const stayRecord = (booking) => events.find(e =>
+    (e.booking_id != null && String(e.booking_id) === String(booking.id)) ||
+    (e.booking_reference != null && booking.ref != null && String(e.booking_reference) === String(booking.ref))
+  );
+  const stayTime = (value) => {
+    if (!value) return "Not recorded";
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? String(value) :
+      d.toLocaleString("en-GB", { timeZone: "Africa/Nairobi", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) + " EAT";
+  };
   const norm = v => String(v || "").trim().toLowerCase();
   const phoneKey = v => String(v || "").replace(/[^\d]/g, "");
   const people = new Map();
@@ -1408,7 +1550,7 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
           <h3>Guest check-in & check-out</h3>
 
           {current.bookings
-            .filter((b) => b.status !== "cancelled" && (b.status === "confirmed" || ["checked_in", "checked_out"].includes(stayStatus(b))))
+            .filter((b) => b.status !== "cancelled")
             .map((b) => {
               const status = stayStatus(b);
 
@@ -1433,8 +1575,35 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
                     <strong>{status.replaceAll("_", " ")}</strong>
                   </p>
 
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, margin: "12px 0" }}>
+                    <div style={{ padding: 12, background: "#fff", border: "1px solid #dce7e2", borderRadius: 10 }}>
+                      <div style={{ fontSize: 12, color: "#537078" }}>Scheduled check-in time</div>
+                      <strong>{formatScheduledTime(b.scheduled_check_in_time || b.check_in_time, "14:00")} (Kenya time)</strong>
+                    </div>
+                    <div style={{ padding: 12, background: "#fff", border: "1px solid #dce7e2", borderRadius: 10 }}>
+                      <div style={{ fontSize: 12, color: "#537078" }}>Scheduled check-out time</div>
+                      <strong>{formatScheduledTime(b.scheduled_check_out_time || b.check_out_time, "10:00")} (Kenya time)</strong>
+                    </div>
+                  </div>
+
+
+                  <p style={{ margin: "6px 0", fontSize: 13 }}>
+                    <strong>Actual check-in:</strong> {stayTime(stayRecord(b)?.actual_check_in || b.actual_check_in)}
+                  </p>
+                  <p style={{ margin: "6px 0", fontSize: 13 }}>
+                    <strong>Actual check-out:</strong> {stayTime(stayRecord(b)?.actual_check_out || b.actual_check_out)}
+                  </p>
+
+                  {status !== "checked_out" && b.status !== "confirmed" && (
+                    <GuestBalancePayment booking={b} payments={payments} receipts={receipts} token={token} refresh={refresh} reloadExtra={reloadExtra} onError={onError} onNotice={onNotice} />
+                  )}
+
                   {status === "checked_out" ? (
                     <span className="crm-chip">Stay Completed</span>
+                  ) : status !== "checked_in" && b.status !== "confirmed" ? (
+                    <p style={{ color: "#92520a", fontSize: 13, margin: "10px 0" }}>
+                      Check-in unavailable: booking is {String(b.status || "pending").replaceAll("_", " ")}. Complete and verify the outstanding payment first.
+                    </p>
                   ) : (
                     <button
                       type="button"
@@ -1464,7 +1633,8 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
         <div className="crm-tabs" style={{ marginBottom: 20 }}>{["Overview", "Bookings & Payments", "Activity & Notes", "Preferences", "Loyalty"].map(t => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>)}</div>
         {tab === "Overview" && <div className="crm-grid"><section style={card}><h3>Customer Summary</h3>{[["First booking", date(current.first)], ["Latest booking", date(current.last)], ["Total bookings", current.bookings.length], ["Completed stays", current.completed], ["Cancellations", current.cancellations], ["Verified spending", fmt(current.total)], ["Last stay", date(current.lastStay?.check_out)]].map(([a, b]) => <div className="crm-detail" key={a}><span>{a}</span><b>{b}</b></div>)}</section><div><section style={{ ...card, background: "#eaf8ef", marginBottom: 15 }}><h3>Next Stay</h3>{current.next ? <><strong>{date(current.next.check_in)} – {date(current.next.check_out)}</strong><p>{current.next.cottage_name || current.next.unit_id}</p><span className="crm-chip">{current.next.status.replaceAll("_", " ")}</span></> : <p>No upcoming confirmed stay</p>}</section><section style={{ ...card, background: "#edf5ff", marginBottom: 15 }}><h3>Retention Opportunity</h3><p>{current.bookings.length > 1 ? "Returning guest. Consider a personalized offer if marketing consent is recorded." : "New guest. Consider a post-stay feedback request with appropriate consent."}</p><button className="crm-btn" onClick={() => setTab("Loyalty")}>View loyalty</button></section><section style={card}><h3>Quick Actions</h3><div className="crm-actions"><button className="crm-btn" onClick={() => setTab("Activity & Notes")}>Add Note</button><button className="crm-btn" onClick={() => setTab("Bookings & Payments")}>View Stays</button><button className="crm-btn" onClick={() => setTab("Preferences")}>Preferences</button></div></section></div></div>}
         {tab === "Bookings & Payments" && <div><h3>Bookings & Payments</h3>{current.bookings.map(b => {
-          const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking" key={b.id}><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>{ps.map(p => <p key={p.id} style={{ fontSize: 13, margin: "5px 0" }}>Payment: {p.payment_method} · {fmt(p.amount)} · {p.status} · Ref: {p.transaction_reference || "—"}</p>)}{rs.map(r => <p key={r.trans_id} style={{ fontSize: 13, margin: "5px 0" }}>M-PESA receipt: <b>{r.receipt_number || "Not provided"}</b> · {r.status} · {date(r.received_at)}</p>)}{!ps.length && !rs.length && <p className="crm-muted crm-mini">No recorded payment or receipt.</p>}
+          const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking" key={b.id} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: 16, alignItems: "start" }}><div><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>
+            {ps.map(p => <p key={p.id} style={{ fontSize: 13, margin: "5px 0" }}>Payment: {p.payment_method} · {fmt(p.amount)} · {p.status} · Ref: {p.transaction_reference || "—"}</p>)}{rs.map(r => <p key={r.trans_id} style={{ fontSize: 13, margin: "5px 0" }}>M-PESA receipt: <b>{r.receipt_number || "Not provided"}</b> · {r.status} · {date(r.received_at)}</p>)}{!ps.length && !rs.length && <p className="crm-muted crm-mini">No recorded payment or receipt.</p>}
             {b.status !== "cancelled" &&
               (b.status === "confirmed" || ["checked_in", "checked_out"].includes(stayStatus(b))) &&
               (stayStatus(b) === "checked_out" ? (
@@ -1479,7 +1649,7 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
                   {busy ? "Saving…" : stayStatus(b) === "checked_in" ? "Check Out Guest" : "Check In Guest"}
                 </button>
               ))}
-            {events.filter(e => String(e.booking_id) === String(b.id)).map(e => <p key={e.id} className="crm-muted crm-mini">{e.event_type.replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div>
+            {events.filter(e => String(e.booking_id) === String(b.id) && e.event_type).map(e => <p key={e.id} className="crm-muted crm-mini">{String(e.event_type || e.stay_status || "Stay update").replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div><aside style={{ padding: 16, borderRadius: 12, border: "1px solid #cce1d9", background: "#f1f8f5", minWidth: 0 }}><h4 style={{ margin: "0 0 12px", color: "#103f43" }}>Guests accompanying this booking</h4><p style={{ margin: "0 0 8px" }}><b>Primary guest:</b> {b.name || b.guest_name || current.name}</p><p className="crm-muted crm-mini">Total guests: {Number(b.guests) || 1}</p>{Array.isArray(b.additional_guests) && b.additional_guests.length ? <ol style={{ paddingLeft: 20, marginBottom: 0 }}>{b.additional_guests.map((guest, index) => <li key={guest.guest_order || index} style={{ marginBottom: 9 }}><b>{guest.full_name || guest.name || `Guest ${index + 2}`}</b>{guest.phone ? <div className="crm-muted crm-mini">{guest.phone}</div> : null}</li>)}</ol> : <p className="crm-muted crm-mini">{Number(b.guests) > 1 ? "Accompanying guest names have not been recorded for this booking." : "No accompanying guests."}</p>}</aside></div>
         })}{!current.bookings.length && <p>No bookings yet.</p>}</div>}
         {tab === "Activity & Notes" && <div><h3>Customer Activity & Notes</h3><form onSubmit={saveNote}><textarea className="crm-input" rows={3} placeholder="Add an internal customer service note" value={noteText} onChange={e => setNoteText(e.target.value)} required /><button className="crm-btn crm-primary" style={{ marginTop: 10 }} disabled={busy || !noteText.trim()}>Save Note</button></form><div style={{ marginTop: 18 }}>{notes.filter(n => customerRow && String(n.customer_id) === String(customerRow.id)).map(n => <div className="crm-booking" key={n.id}><p>{n.note}</p><small className="crm-muted">{date(n.created_at)}</small></div>)}{!customerRow && <p className="crm-muted">No saved customer notes.</p>}</div></div>}
         {tab === "Preferences" && <form onSubmit={savePreferences}><h3>Guest Preferences</h3><label>Preferred cottage<input className="crm-input" value={pref.preferred_cottage} onChange={e => setPref({ ...pref, preferred_cottage: e.target.value })} /></label><label style={{ display: "block", marginTop: 14 }}>Special requests<textarea className="crm-input" rows={4} value={pref.special_requests} onChange={e => setPref({ ...pref, special_requests: e.target.value })} /></label><label style={{ display: "flex", alignItems: "center", gap: 9, margin: "14px 0" }}><input type="checkbox" checked={pref.marketing_consent} onChange={e => setPref({ ...pref, marketing_consent: e.target.checked })} /> Marketing consent recorded</label><p className="crm-muted crm-mini">Only tick this when the guest has explicitly consented. This does not send messages.</p><button className="crm-btn crm-primary" disabled={busy}>Save Preferences</button></form>}
