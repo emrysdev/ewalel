@@ -448,7 +448,7 @@ function App() {
                 <Icon size={19} strokeWidth={1.9} /> <span>{name}</span>
                 {/* {name === "Cottages" && <ChevronDown size={16} className={`ew-nav-chevron ${cottagesExpanded ? "expanded" : ""}`} />} */}
               </button>
-              
+
             </div>
           ))}
         </div>
@@ -1353,14 +1353,18 @@ function GuestBalancePayment({ booking, payments, receipts, token, refresh, relo
     try {
       let message;
       if (method === "mpesa" && pending) {
-        await api("/admin/mpesa/verify", { method: "POST", body: JSON.stringify({
-          receipt_number: pendingReceipt, verified_amount: paid, verification_reference: evidence.trim()
-        }) }, token);
+        await api("/admin/mpesa/verify", {
+          method: "POST", body: JSON.stringify({
+            receipt_number: pendingReceipt, verified_amount: paid, verification_reference: evidence.trim()
+          })
+        }, token);
         message = "M-PESA payment verified and booking confirmed. Check In Guest is now available.";
       } else if (method === "mpesa") {
-        await api("/admin/mpesa/record", { method: "POST", body: JSON.stringify({
-          booking_id: booking.id, receipt_number: reference.trim().toUpperCase()
-        }) }, token);
+        await api("/admin/mpesa/record", {
+          method: "POST", body: JSON.stringify({
+            booking_id: booking.id, receipt_number: reference.trim().toUpperCase()
+          })
+        }, token);
         message = "M-PESA receipt recorded as pending. Verify it against Safaricom, then confirm it here before check-in.";
       } else {
         const result = await api(`/admin/bookings/${encodeURIComponent(booking.id)}/settle-balance`, {
@@ -1412,6 +1416,8 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   const [notes, setNotes] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [events, setEvents] = useState([]);
+  const [bookingFlags, setBookingFlags] = useState({ blacklist: [], archived: [] });
+  const [archivedBookings, setArchivedBookings] = useState([]);
 
   const stayStatus = (booking) => {
     // Support both the crm_guest_stays response and booking_stay_events response.
@@ -1448,17 +1454,95 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   const [newCustomer, setNewCustomer] = useState({ name: "", phone: "", email: "" });
   const [pref, setPref] = useState({ preferred_cottage: "", special_requests: "", marketing_consent: false });
   const [insights, setInsights] = useState(false);
+  const [actionModal, setActionModal] = useState(null);
+  const [actionForm, setActionForm] = useState({});
+  const [modalError, setModalError] = useState("");
+  const [refundModal, setRefundModal] = useState(null);
+  const [refundSummary, setRefundSummary] = useState(null);
+  const [refundForm, setRefundForm] = useState({ amount: "", method: "mpesa", status: "pending", reference: "", reason: "" });
+  async function openRefund(booking) {
+    setRefundModal(booking); setRefundSummary(null); setModalError("");
+    try {
+      const summary = await api(`/admin/bookings/${encodeURIComponent(booking.id)}/refund-summary`, {}, token);
+      setRefundSummary(summary);
+      setRefundForm({ amount: String(Math.min(summary.maximum_refundable, summary.potential_overpayment)), method: "mpesa", status: "pending", reference: "", reason: "Booking amendment or cancellation" });
+    } catch (err) { setModalError(err.message); }
+  }
+  async function submitRefund(e) {
+    e.preventDefault(); if (!refundModal || busy) return;
+    setBusy(true); setModalError("");
+    try {
+      await api(`/admin/bookings/${encodeURIComponent(refundModal.id)}/refunds`, { method: "POST", body: JSON.stringify({ ...refundForm, amount: Number(refundForm.amount) }) }, token);
+      setRefundModal(null); setRefundSummary(null); await refresh(); await reloadExtra();
+      onNotice(refundForm.status === "completed" ? "Refund recorded as completed (external receipt required)." : "Refund recorded as pending. No money has been transferred.");
+    } catch (err) { setModalError(err.message); } finally { setBusy(false); }
+  }
+  const openAction = (type, booking = null) => {
+    setModalError("");
+    setActionForm(type === "edit" ? {
+      cottage_id: String(booking?.unit_id ?? booking?.cottage_id ?? ""),
+      check_in: String(booking?.check_in || "").slice(0, 10),
+      check_out: String(booking?.check_out || "").slice(0, 10),
+      guests: Number(booking?.guests || 1),
+      additional_guests: Array.from({ length: Math.max(0, Number(booking?.guests || 1) - 1) }, (_, i) => ({
+        name: booking?.additional_guests?.[i]?.full_name || booking?.additional_guests?.[i]?.name || "",
+        phone: booking?.additional_guests?.[i]?.phone || ""
+      }))
+    } : { reason: "", acknowledge: false });
+    setActionModal({ type, booking });
+  };
+  const closeAction = () => { if (!busy) { setActionModal(null); setModalError(""); } };
+  async function submitAction(e) {
+    e.preventDefault();
+    if (!actionModal || busy) return;
+    const { type, booking: b } = actionModal;
+    setModalError("");
+    if (type === "edit") {
+      const n = Number(actionForm.guests);
+      if (!Number.isInteger(n) || n < 1 || n > 30) return setModalError("Enter a valid number of guests.");
+      if (!actionForm.cottage_id) return setModalError("Select a cottage.");
+      if (!actionForm.check_in || !actionForm.check_out || actionForm.check_out <= actionForm.check_in) return setModalError("Check-out must be after check-in.");
+      if ((actionForm.additional_guests || []).length !== n - 1 || actionForm.additional_guests.some(g => !g.name.trim())) return setModalError("Enter the full name of every accompanying guest.");
+    } else if (type !== "delete" && !actionForm.reason?.trim()) return setModalError("Please provide a reason.");
+    if ((type === "delete" || type === "blacklist") && !actionForm.acknowledge) return setModalError("Tick the confirmation checkbox to continue.");
+    setBusy(true);
+    try {
+      if (type === "edit") {
+        await api(`/admin/bookings/${encodeURIComponent(b.id)}/details`, {
+          method: "PATCH", body: JSON.stringify({
+            cottage_id: actionForm.cottage_id, check_in: actionForm.check_in, check_out: actionForm.check_out,
+            guests: Number(actionForm.guests), additional_guests: actionForm.additional_guests.map(g => ({ name: g.name.trim(), phone: g.phone?.trim() || "" }))
+          })
+        }, token);
+      } else if (type === "cancel") {
+        await api(`/admin/bookings/${encodeURIComponent(b.id)}/cancel`, { method: "POST", body: JSON.stringify({ reason: actionForm.reason.trim() }) }, token);
+      } else if (type === "delete") {
+        await api(`/admin/bookings/${encodeURIComponent(b.id)}`, { method: "DELETE" }, token);
+      } else if (type === "blacklist") {
+        await api("/admin/blacklist", { method: "POST", body: JSON.stringify({ name: current.name, phone: current.phone, email: current.email, reason: actionForm.reason.trim() }) }, token);
+      }
+      if (type !== "blacklist") await refresh();
+      await reloadExtra();
+      onNotice(({ edit: "Booking updated. Review any refund due.", cancel: "Booking cancelled. Review any refund due.", delete: "Booking archived for audit.", blacklist: "Guest added to booking restriction list." })[type]);
+      setActionModal(null);
+      if (type === "edit" || type === "cancel") await openRefund(b);
+    } catch (err) { setModalError(err.message); } finally { setBusy(false); }
+  }
   const reloadExtra = useCallback(async () => {
-    const [r, n, c, e] = await Promise.all([
+    const [r, n, c, e, flags, archived] = await Promise.all([
       api("/admin/mpesa", {}, token).catch(() => []),
       api("/admin/customer-notes", {}, token).catch(() => []),
       api("/admin/customers", {}, token).catch(() => []),
-      api("/admin/stays", {}, token).catch(() => [])
+      api("/admin/stays", {}, token).catch(() => []),
+      api("/admin/booking-flags", {}, token).catch(() => ({ blacklist: [], archived: [] })),
+      api("/admin/archived-bookings", {}, token).catch(() => [])
     ]);
     setReceipts(Array.isArray(r) ? r : []);
     setNotes(Array.isArray(n) ? n : []);
     setCustomers(Array.isArray(c) ? c : []);
     setEvents(Array.isArray(e) ? e : []);
+    setBookingFlags(flags && typeof flags === "object" ? flags : { blacklist: [], archived: [] });
+    setArchivedBookings(Array.isArray(archived) ? archived : []);
   }, [token]);
   useEffect(() => { reloadExtra().catch(e => onError(e.message)); }, [reloadExtra]);
   const fmt = n => "KES " + Number(n || 0).toLocaleString("en-KE", { maximumFractionDigits: 2 });
@@ -1479,7 +1563,7 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   const people = new Map();
   // Do not merge guests merely because they share a name.
   const keyFor = b => { const p = phoneKey(b.phone || b.guest_phone), e = norm(b.email || b.guest_email); return p ? "p:" + p : e ? "e:" + e : "b:" + b.id; };
-  for (const b of bookings) { const key = keyFor(b); if (!people.has(key)) people.set(key, { key, name: b.name || b.guest_name || "Unnamed guest", phone: b.phone || b.guest_phone || "", email: b.email || b.guest_email || "", bookings: [] }); people.get(key).bookings.push(b); }
+  for (const b of [...bookings, ...archivedBookings]) { const key = keyFor(b); if (!people.has(key)) people.set(key, { key, name: b.name || b.guest_name || "Unnamed guest", phone: b.phone || b.guest_phone || "", email: b.email || b.guest_email || "", bookings: [] }); people.get(key).bookings.push(b); }
   for (const c of customers) { const p = phoneKey(c.phone), e = norm(c.email); const key = p ? "p:" + p : e ? "e:" + e : "c:" + c.id; if (!people.has(key)) people.set(key, { key, name: c.name, phone: c.phone || "", email: c.email || "", bookings: [] }); }
   const profiles = [...people.values()].map(g => {
     const bs = [...g.bookings].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
@@ -1504,6 +1588,13 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   });
   const current = profiles.find(g => g.key === selected) || filtered[0] || null;
   const customerRow = current && customers.find(c => (phoneKey(c.phone) && phoneKey(c.phone) === phoneKey(current.phone)) || (norm(c.email) && norm(c.email) === norm(current.email)));
+  const blacklistedEntry = current && (bookingFlags.blacklist || []).find(entry => {
+    const samePhone = phoneKey(entry.phone) && phoneKey(current.phone) === phoneKey(entry.phone);
+    const sameEmail = norm(entry.email) && norm(current.email) === norm(entry.email);
+    const nameOnly = !entry.phone && !entry.email && norm(entry.full_name) === norm(current.name);
+    return samePhone || sameEmail || nameOnly;
+  });
+  const archivedIds = new Set((bookingFlags.archived || []).map(x => String(x.booking_id)));
   useEffect(() => { setPref({ preferred_cottage: customerRow?.preferred_cottage || "", special_requests: customerRow?.special_requests || "", marketing_consent: Boolean(customerRow?.marketing_consent) }); }, [customerRow?.id, customerRow?.preferred_cottage, customerRow?.special_requests, customerRow?.marketing_consent]);
   async function stayAction(b, action) { if (!window.confirm(`${action === "check-in" ? "Check in" : "Check out"} ${current?.name} for booking ${b.ref || b.id}?`)) return; setBusy(true); try { await api(`/admin/bookings/${encodeURIComponent(b.id)}/${action}`, { method: "POST" }, token); await refresh(); await reloadExtra(); onNotice("Guest stay updated successfully."); } catch (e) { onError(e.message); } finally { setBusy(false); } }
   async function addCustomer(e) { e.preventDefault(); setBusy(true); try { await api("/admin/customers", { method: "POST", body: JSON.stringify(newCustomer) }, token); await reloadExtra(); setAddOpen(false); setNewCustomer({ name: "", phone: "", email: "" }); onNotice("Customer added."); } catch (e) { onError(e.message); } finally { setBusy(false); } }
@@ -1515,7 +1606,16 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
   const stat = (title, value, tone) => <div key={title} style={{ padding: "16px 19px", borderRadius: 13, background: tone[0], border: `1px solid ${tone[1]}`, borderLeft: `4px solid ${tone[2]}` }}><div style={{ fontSize: 12, color: tone[2], marginBottom: 5 }}>{title}</div><b style={{ fontSize: 23, color: "#102f35" }}>{value}</b></div>;
   const T = { green: ["#e9f7ef", "#c0e8cc", "#087444"], blue: ["#e9f1ff", "#bed5ff", "#235ea5"], purple: ["#f3eaff", "#dfc8fc", "#7641b2"], red: ["#ffeded", "#ffc9c9", "#b94040"], gold: ["#fff5e2", "#ffe0a2", "#a96a06"] };
   return <div className="ew-crm" style={{ width: "100%", maxWidth: 1720, margin: "0 auto", padding: "6px 0 25px", color: "#102d35" }}>
-    <style>{`main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% - 40px)!important;margin-left:auto!important;margin-right:auto!important;padding-left:0!important;padding-right:0!important}@media(max-width:700px){main:has(> .breadcrumb):has(.ew-crm){width:calc(100% - 24px)!important}}.ew-crm *{box-sizing:border-box}.ew-crm button,.ew-crm input,.ew-crm select,.ew-crm textarea{font:inherit}.ew-crm button{cursor:pointer}.ew-crm button:disabled{opacity:.5;cursor:not-allowed}.ew-crm .crm-btn{border:1px solid #cbd8db;border-radius:10px;background:#fff;color:#173a40;padding:10px 15px;font-weight:600}.ew-crm .crm-primary{background:#103f43;color:#fff;border-color:#103f43}.ew-crm .crm-btn:hover:not(:disabled){filter:brightness(.94)}.ew-crm .crm-input{width:100%;padding:11px 13px;border:1px solid #cbd9db;border-radius:9px;background:#fff;color:#14383e}.ew-crm .crm-tabs{display:flex;gap:10px;flex-wrap:wrap}.ew-crm .crm-tabs button{flex:1;border:1px solid #d8e2e4;background:#fff;border-radius:26px;padding:11px;white-space:nowrap}.ew-crm .crm-tabs button.active{background:#104348;color:#fff}.ew-crm .crm-person{width:100%;text-align:left;border:1px solid #d9e5e2;border-radius:13px;padding:12px;background:#fff;margin:6px 0;display:flex;align-items:center;gap:12px}.ew-crm .crm-person.active{background:#e6f4ee;border-color:#64b6a3}.ew-crm .crm-avatar{width:50px;height:50px;border-radius:50%;background:#dceee4;display:grid;place-items:center;font-size:21px;color:#126047;flex-shrink:0}.ew-crm .crm-layout{display:grid;grid-template-columns:minmax(300px, 30%) minmax(0, 1fr);gap:20px;align-items:start}.ew-crm .crm-layout>aside,.ew-crm .crm-layout>main{min-width:0}.ew-crm .crm-layout>main{min-height:0}.ew-crm .crm-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.ew-crm .crm-actions{display:flex;gap:8px;flex-wrap:wrap}.ew-crm .crm-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}.ew-crm .crm-grid>section,.ew-crm .crm-grid>div{min-width:0}.ew-crm .crm-detail{padding:11px 0;border-bottom:1px solid #e5eceb;display:flex;justify-content:space-between;gap:15px}.ew-crm .crm-muted{color:#668086}.ew-crm .crm-mini{font-size:12px}.ew-crm .crm-booking{padding:15px;border:1px solid #d9e5e2;border-radius:12px;margin:12px 0}.ew-crm .crm-chip{border-radius:20px;padding:5px 9px;font-size:11px;background:#e6f3ec;color:#146340;font-weight:700}@media(max-width:1180px){.ew-crm .crm-grid{grid-template-columns:1fr}}@media(max-width:1050px){.ew-crm .crm-kpis{grid-template-columns:repeat(3,1fr)}}@media(max-width:750px){.ew-crm .crm-layout,.ew-crm .crm-grid{grid-template-columns:1fr}.ew-crm .crm-kpis{grid-template-columns:repeat(2,1fr)}.ew-crm .crm-head{flex-direction:column;align-items:flex-start!important}}`}</style>
+    <style>{`
+/* Compact, pill-shaped booking actions. Keep all four on one row when space allows. */
+.ew-crm .crm-booking-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;width:100%;overflow:visible;}
+.ew-crm .crm-booking-actions .crm-btn{flex:0 0 auto;min-width:max-content;white-space:nowrap;border-radius:999px;padding:8px 13px;font-size:11px;line-height:1.25;font-weight:700;}
+.ew-crm .crm-booking-actions .crm-action-edit{background:#e7f2ff;border-color:#bad7f5;color:#174d83;}
+.ew-crm .crm-booking-actions .crm-action-cancel{background:#fff3df;border-color:#f3d7a6;color:#87520b;}
+.ew-crm .crm-booking-actions .crm-action-delete{background:#ffebed;border-color:#f4bec6;color:#9d2937;}
+.ew-crm .crm-booking-actions .crm-action-blacklist{background:#f1eafa;border-color:#d9c3ee;color:#65328c;}
+@media(max-width:560px){.ew-crm .crm-booking-actions{flex-wrap:wrap;}}
+main:has(> .breadcrumb):has(.ew-crm){max-width:1740px!important;width:calc(100% - 40px)!important;margin-left:auto!important;margin-right:auto!important;padding-left:0!important;padding-right:0!important}@media(max-width:700px){main:has(> .breadcrumb):has(.ew-crm){width:calc(100% - 24px)!important}}.ew-crm *{box-sizing:border-box}.ew-crm button,.ew-crm input,.ew-crm select,.ew-crm textarea{font:inherit}.ew-crm button{cursor:pointer}.ew-crm button:disabled{opacity:.5;cursor:not-allowed}.ew-crm .crm-btn{border:1px solid #cbd8db;border-radius:10px;background:#fff;color:#173a40;padding:10px 15px;font-weight:600}.ew-crm .crm-primary{background:#103f43;color:#fff;border-color:#103f43}.ew-crm .crm-btn:hover:not(:disabled){filter:brightness(.94)}.ew-crm .crm-input{width:100%;padding:11px 13px;border:1px solid #cbd9db;border-radius:9px;background:#fff;color:#14383e}.ew-crm .crm-tabs{display:flex;gap:10px;flex-wrap:wrap}.ew-crm .crm-tabs button{flex:1;border:1px solid #d8e2e4;background:#fff;border-radius:26px;padding:11px;white-space:nowrap}.ew-crm .crm-tabs button.active{background:#104348;color:#fff}.ew-crm .crm-person{width:100%;text-align:left;border:1px solid #d9e5e2;border-radius:13px;padding:12px;background:#fff;margin:6px 0;display:flex;align-items:center;gap:12px}.ew-crm .crm-person.active{background:#e6f4ee;border-color:#64b6a3}.ew-crm .crm-avatar{width:50px;height:50px;border-radius:50%;background:#dceee4;display:grid;place-items:center;font-size:21px;color:#126047;flex-shrink:0}.ew-crm .crm-layout{display:grid;grid-template-columns:minmax(300px, 30%) minmax(0, 1fr);gap:20px;align-items:start}.ew-crm .crm-layout>aside,.ew-crm .crm-layout>main{min-width:0}.ew-crm .crm-layout>main{min-height:0}.ew-crm .crm-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}.ew-crm .crm-actions{display:flex;gap:8px;flex-wrap:wrap}.ew-crm .crm-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}.ew-crm .crm-grid>section,.ew-crm .crm-grid>div{min-width:0}.ew-crm .crm-detail{padding:11px 0;border-bottom:1px solid #e5eceb;display:flex;justify-content:space-between;gap:15px}.ew-crm .crm-muted{color:#668086}.ew-crm .crm-mini{font-size:12px}.ew-crm .crm-booking{padding:15px;border:1px solid #d9e5e2;border-radius:12px;margin:12px 0}.ew-crm .crm-chip{border-radius:20px;padding:5px 9px;font-size:11px;background:#e6f3ec;color:#146340;font-weight:700}@media(max-width:1180px){.ew-crm .crm-grid{grid-template-columns:1fr}}@media(max-width:1050px){.ew-crm .crm-kpis{grid-template-columns:repeat(3,1fr)}}@media(max-width:750px){.ew-crm .crm-layout,.ew-crm .crm-grid{grid-template-columns:1fr}.ew-crm .crm-kpis{grid-template-columns:repeat(2,1fr)}.ew-crm .crm-head{flex-direction:column;align-items:flex-start!important}}`}</style>
     <div style={{ ...card, marginBottom: 18 }}>
       <div className="crm-head" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 15, marginBottom: 24 }}><div><div style={{ fontSize: 12, letterSpacing: 2, color: "#b96a2d", fontWeight: 700 }}>EW A L E L  /  CUSTOMER RELATIONSHIPS</div><h1 style={{ fontSize: 30, margin: "8px 0 3px" }}>Customer Retention</h1><div className="crm-muted">Manage guests, track bookings and payments, and build lasting customer relationships.</div></div><div className="crm-actions"><ManualGuestRegistration cottages={cottages} token={token} onSaved={async () => { await refresh(); await reloadExtra(); onNotice("Walk-in booking saved."); }} onError={onError} /><button className="crm-btn" onClick={() => setAddOpen(true)}>＋ Add Contact</button><button className="crm-btn" onClick={csv}>↓ Export (CSV)</button><button className="crm-btn" onClick={() => setInsights(v => !v)}>▥ Retention Insights</button></div></div>
       <div className="crm-kpis">{stat("Total customers", profiles.length, T.green)}{stat("Total bookings", bookings.length, T.blue)}{stat("Completed stays", bookings.filter(b => stayStatus(b) === "checked_out").length, T.green)}{stat("Returning guests", `${profiles.filter(g => g.bookings.length >= 2).length} (${profiles.length ? Math.round(100 * profiles.filter(g => g.bookings.length >= 2).length / profiles.length) : 0}%)`, T.purple)}{stat("Cancellations", bookings.filter(b => b.status === "cancelled").length, T.red)}{stat("Verified spending", fmt(profiles.reduce((n, g) => n + g.total, 0)), T.gold)}</div>
@@ -1536,7 +1636,7 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
       <div style={{ maxHeight: 700, overflowY: "auto" }}>{filtered.map(g => <button key={g.key} className={`crm-person ${current?.key === g.key ? "active" : ""}`} onClick={() => { setSelected(g.key); setTab("Overview"); }}><span className="crm-avatar">{g.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()}</span><span style={{ minWidth: 0, flex: 1 }}><strong style={{ display: "block" }}>{g.name}</strong><small className="crm-muted">{g.phone || g.email || "No contact details"}</small><small style={{ display: "block", marginTop: 5 }}>{g.bookings.length} booking(s) · {fmt(g.total)}</small></span><span className="crm-chip">{g.inactive ? "Inactive" : g.segment}</span></button>)}{!filtered.length && <p className="crm-muted">No matching customers.</p>}</div>
     </aside>
       <main style={card}>{!current ? <p className="crm-muted">Select a customer to view their profile.</p> : <>
-        <div className="crm-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 15, marginBottom: 18 }}><div style={{ display: "flex", alignItems: "center", gap: 15 }}><div className="crm-avatar" style={{ width: 70, height: 70, fontSize: 27 }}>{current.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()}</div><div><h2 style={{ fontSize: 24, margin: "0 0 6px" }}>{current.name} <span className="crm-chip">{current.segment} Customer</span></h2><div className="crm-muted crm-mini">{current.phone || "No phone"} · {current.email || "No email"}</div></div></div><div className="crm-actions">{current.phone && <a className="crm-btn" href={`tel:${current.phone}`}>☎ Call</a>}{current.email && <a className="crm-btn" href={`mailto:${current.email}`}>✉ Email</a>}<button className="crm-btn" onClick={() => { const msg = `Hello ${current.name}, thank you for choosing Ewalel Cottages. We would love to welcome you again.`; navigator.clipboard.writeText(msg).then(() => onNotice("Follow-up message copied; not sent.")).catch(() => onError("Clipboard unavailable")); }}>Follow Up</button></div></div>
+        <div className="crm-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 15, marginBottom: 18 }}><div style={{ display: "flex", alignItems: "center", gap: 15 }}><div className="crm-avatar" style={{ width: 70, height: 70, fontSize: 27 }}>{current.name.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()}</div><div><h2 style={{ fontSize: 24, margin: "0 0 6px" }}>{current.name} {blacklistedEntry && <span className="crm-status-badge crm-status-blacklisted">Blacklisted</span>} <span className="crm-chip">{current.segment} Customer</span></h2><div className="crm-muted crm-mini">{current.phone || "No phone"} · {current.email || "No email"}</div></div></div><div className="crm-actions">{current.phone && <a className="crm-btn" href={`tel:${current.phone}`}>☎ Call</a>}{current.email && <a className="crm-btn" href={`mailto:${current.email}`}>✉ Email</a>}<button className="crm-btn" onClick={() => { const msg = `Hello ${current.name}, thank you for choosing Ewalel Cottages. We would love to welcome you again.`; navigator.clipboard.writeText(msg).then(() => onNotice("Follow-up message copied; not sent.")).catch(() => onError("Clipboard unavailable")); }}>Follow Up</button></div></div>
 
         <section
           className="crm-stay-management"
@@ -1550,7 +1650,7 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
           <h3>Guest check-in & check-out</h3>
 
           {current.bookings
-            .filter((b) => b.status !== "cancelled")
+            .filter((b) => b.status !== "cancelled" && !archivedIds.has(String(b.id)))
             .map((b) => {
               const status = stayStatus(b);
 
@@ -1633,28 +1733,79 @@ function CustomerRetention({ bookings, payments, cottages, token, onError, onNot
         <div className="crm-tabs" style={{ marginBottom: 20 }}>{["Overview", "Bookings & Payments", "Activity & Notes", "Preferences", "Loyalty"].map(t => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>)}</div>
         {tab === "Overview" && <div className="crm-grid"><section style={card}><h3>Customer Summary</h3>{[["First booking", date(current.first)], ["Latest booking", date(current.last)], ["Total bookings", current.bookings.length], ["Completed stays", current.completed], ["Cancellations", current.cancellations], ["Verified spending", fmt(current.total)], ["Last stay", date(current.lastStay?.check_out)]].map(([a, b]) => <div className="crm-detail" key={a}><span>{a}</span><b>{b}</b></div>)}</section><div><section style={{ ...card, background: "#eaf8ef", marginBottom: 15 }}><h3>Next Stay</h3>{current.next ? <><strong>{date(current.next.check_in)} – {date(current.next.check_out)}</strong><p>{current.next.cottage_name || current.next.unit_id}</p><span className="crm-chip">{current.next.status.replaceAll("_", " ")}</span></> : <p>No upcoming confirmed stay</p>}</section><section style={{ ...card, background: "#edf5ff", marginBottom: 15 }}><h3>Retention Opportunity</h3><p>{current.bookings.length > 1 ? "Returning guest. Consider a personalized offer if marketing consent is recorded." : "New guest. Consider a post-stay feedback request with appropriate consent."}</p><button className="crm-btn" onClick={() => setTab("Loyalty")}>View loyalty</button></section><section style={card}><h3>Quick Actions</h3><div className="crm-actions"><button className="crm-btn" onClick={() => setTab("Activity & Notes")}>Add Note</button><button className="crm-btn" onClick={() => setTab("Bookings & Payments")}>View Stays</button><button className="crm-btn" onClick={() => setTab("Preferences")}>Preferences</button></div></section></div></div>}
         {tab === "Bookings & Payments" && <div><h3>Bookings & Payments</h3>{current.bookings.map(b => {
-          const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking" key={b.id} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: 16, alignItems: "start" }}><div><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>
+          const ps = payments.filter(p => String(p.booking_id) === String(b.id)); const rs = receipts.filter(r => String(r.booking_id) === String(b.id)); return <div className="crm-booking" key={b.id} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: 16, alignItems: "start" }}><div><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><b>#{b.ref || b.id} · {b.cottage_name || b.unit_id}</b><span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}><span className="crm-chip">{String(b.status).replaceAll("_", " ")}</span>{archivedIds.has(String(b.id)) && <span className="crm-status-badge crm-status-archived">Archived</span>}{blacklistedEntry && <span className="crm-status-badge crm-status-blacklisted">Blacklisted guest</span>}</span></div><p className="crm-muted crm-mini">Booked {date(b.created_at)} · Stay {date(b.check_in)} – {date(b.check_out)}</p><p><b>Booking total:</b> {fmt(b.total)}</p>
             {ps.map(p => <p key={p.id} style={{ fontSize: 13, margin: "5px 0" }}>Payment: {p.payment_method} · {fmt(p.amount)} · {p.status} · Ref: {p.transaction_reference || "—"}</p>)}{rs.map(r => <p key={r.trans_id} style={{ fontSize: 13, margin: "5px 0" }}>M-PESA receipt: <b>{r.receipt_number || "Not provided"}</b> · {r.status} · {date(r.received_at)}</p>)}{!ps.length && !rs.length && <p className="crm-muted crm-mini">No recorded payment or receipt.</p>}
-            {b.status !== "cancelled" &&
-              (b.status === "confirmed" || ["checked_in", "checked_out"].includes(stayStatus(b))) &&
-              (stayStatus(b) === "checked_out" ? (
-                <span className="crm-chip">Stay Completed</span>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy}
-                  className="crm-btn crm-primary"
-                  onClick={() => stayAction(b, stayStatus(b) === "checked_in" ? "check-out" : "check-in")}
-                >
-                  {busy ? "Saving…" : stayStatus(b) === "checked_in" ? "Check Out Guest" : "Check In Guest"}
-                </button>
-              ))}
+            <div className="crm-booking-actions" style={{ marginTop: 14 }}>
+              <button type="button" className="crm-btn crm-action-edit" disabled={busy || b.status === "cancelled" || archivedIds.has(String(b.id))} onClick={() => openAction("edit", b)}>Edit Booking</button>
+              <button type="button" className="crm-btn crm-action-cancel" disabled={busy || b.status === "cancelled" || archivedIds.has(String(b.id))} onClick={() => openAction("cancel", b)}>Cancel Booking</button>
+              <button type="button" className="crm-btn crm-action-blacklist" disabled={busy || !!blacklistedEntry} onClick={() => openAction("blacklist", b)}>{blacklistedEntry ? "Already Blacklisted" : "Blacklist Guest"}</button>
+              <button type="button" className="crm-btn crm-action-delete" disabled={busy || archivedIds.has(String(b.id))} onClick={() => openAction("delete", b)}>{archivedIds.has(String(b.id)) ? "Archived" : "Delete Booking"}</button>
+            </div>
             {events.filter(e => String(e.booking_id) === String(b.id) && e.event_type).map(e => <p key={e.id} className="crm-muted crm-mini">{String(e.event_type || e.stay_status || "Stay update").replaceAll("_", " ")}: {date(e.created_at)}</p>)}</div><aside style={{ padding: 16, borderRadius: 12, border: "1px solid #cce1d9", background: "#f1f8f5", minWidth: 0 }}><h4 style={{ margin: "0 0 12px", color: "#103f43" }}>Guests accompanying this booking</h4><p style={{ margin: "0 0 8px" }}><b>Primary guest:</b> {b.name || b.guest_name || current.name}</p><p className="crm-muted crm-mini">Total guests: {Number(b.guests) || 1}</p>{Array.isArray(b.additional_guests) && b.additional_guests.length ? <ol style={{ paddingLeft: 20, marginBottom: 0 }}>{b.additional_guests.map((guest, index) => <li key={guest.guest_order || index} style={{ marginBottom: 9 }}><b>{guest.full_name || guest.name || `Guest ${index + 2}`}</b>{guest.phone ? <div className="crm-muted crm-mini">{guest.phone}</div> : null}</li>)}</ol> : <p className="crm-muted crm-mini">{Number(b.guests) > 1 ? "Accompanying guest names have not been recorded for this booking." : "No accompanying guests."}</p>}</aside></div>
         })}{!current.bookings.length && <p>No bookings yet.</p>}</div>}
         {tab === "Activity & Notes" && <div><h3>Customer Activity & Notes</h3><form onSubmit={saveNote}><textarea className="crm-input" rows={3} placeholder="Add an internal customer service note" value={noteText} onChange={e => setNoteText(e.target.value)} required /><button className="crm-btn crm-primary" style={{ marginTop: 10 }} disabled={busy || !noteText.trim()}>Save Note</button></form><div style={{ marginTop: 18 }}>{notes.filter(n => customerRow && String(n.customer_id) === String(customerRow.id)).map(n => <div className="crm-booking" key={n.id}><p>{n.note}</p><small className="crm-muted">{date(n.created_at)}</small></div>)}{!customerRow && <p className="crm-muted">No saved customer notes.</p>}</div></div>}
         {tab === "Preferences" && <form onSubmit={savePreferences}><h3>Guest Preferences</h3><label>Preferred cottage<input className="crm-input" value={pref.preferred_cottage} onChange={e => setPref({ ...pref, preferred_cottage: e.target.value })} /></label><label style={{ display: "block", marginTop: 14 }}>Special requests<textarea className="crm-input" rows={4} value={pref.special_requests} onChange={e => setPref({ ...pref, special_requests: e.target.value })} /></label><label style={{ display: "flex", alignItems: "center", gap: 9, margin: "14px 0" }}><input type="checkbox" checked={pref.marketing_consent} onChange={e => setPref({ ...pref, marketing_consent: e.target.checked })} /> Marketing consent recorded</label><p className="crm-muted crm-mini">Only tick this when the guest has explicitly consented. This does not send messages.</p><button className="crm-btn crm-primary" disabled={busy}>Save Preferences</button></form>}
         {tab === "Loyalty" && <section style={card}><h3>Customer Loyalty</h3><div className="crm-grid">{stat("Total bookings", current.bookings.length, T.blue)}{stat("Verified spending", fmt(current.total), T.gold)}</div><p style={{ marginTop: 20 }}>Customer segment: <b>{current.segment}</b></p><p className="crm-muted">Loyalty information is calculated from actual reservations and completed payments. No discount or loyalty points have been issued.</p><p>Marketing consent: <b>{customerRow?.marketing_consent ? "Recorded" : "Not recorded"}</b></p></section>}
       </>}</main></div>
+    {actionModal && <div className="ew-action-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closeAction(); }}>
+      <form className="ew-action-modal" role="dialog" aria-modal="true" aria-labelledby="ew-action-title" onSubmit={submitAction}>
+        <div className="ew-action-header">
+          <div><div className="ew-action-eyebrow">EWALEL COTTAGES · RESERVATION MANAGEMENT</div>
+            <h2 id="ew-action-title">{{ edit: "Edit booking", cancel: "Cancel booking", delete: "Archive booking", blacklist: "Restrict guest bookings" }[actionModal.type]}</h2>
+            <p>{actionModal.type === "blacklist" ? current?.name : `Reservation #${actionModal.booking?.ref || actionModal.booking?.id}`}</p>
+          </div><button type="button" className="ew-action-close" aria-label="Close" onClick={closeAction} disabled={busy}>×</button>
+        </div>
+        <div className="ew-action-body">
+          {actionModal.type === "edit" ? <>
+            <div className="ew-action-grid">
+              <label className="ew-action-wide">Cottage<select required value={actionForm.cottage_id || ""} onChange={e => setActionForm(f => ({ ...f, cottage_id: e.target.value }))}>
+                <option value="">Choose cottage</option>{cottages.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
+              </select></label>
+              <label>Check-in date<input type="date" required value={actionForm.check_in || ""} onChange={e => setActionForm(f => ({ ...f, check_in: e.target.value }))} /></label>
+              <label>Check-out date<input type="date" required min={actionForm.check_in || undefined} value={actionForm.check_out || ""} onChange={e => setActionForm(f => ({ ...f, check_out: e.target.value }))} /></label>
+              <label className="ew-action-wide">Number of guests (including primary guest)<input type="number" min="1" max="30" required value={actionForm.guests || 1} onChange={e => setActionForm(f => { const n = Math.max(1, Math.min(30, Number(e.target.value) || 1)); return { ...f, guests: n, additional_guests: Array.from({ length: n - 1 }, (_, i) => f.additional_guests?.[i] || { name: "", phone: "" }) }; })} /></label>
+            </div>
+            {actionForm.additional_guests?.length > 0 && <div className="ew-action-guests"><h3>Accompanying guests ({actionForm.additional_guests.length})</h3>
+              {actionForm.additional_guests.map((g, i) => <div key={i} className="ew-action-guest"><strong>Guest {i + 2}</strong><div className="ew-action-grid">
+                <label>Full name<input required placeholder="Guest full name" value={g.name} onChange={e => setActionForm(f => ({ ...f, additional_guests: f.additional_guests.map((x, j) => i === j ? { ...x, name: e.target.value } : x) }))} /></label>
+                <label>Phone (optional)<input placeholder="Phone number" value={g.phone || ""} onChange={e => setActionForm(f => ({ ...f, additional_guests: f.additional_guests.map((x, j) => i === j ? { ...x, phone: e.target.value } : x) }))} /></label>
+              </div></div>)}
+            </div>}
+            <div className="ew-action-info">Availability, cottage capacity and pricing must be validated by the server. Existing payment records will not be modified automatically.</div>
+          </> : <>
+            <div className={`ew-action-info ${actionModal.type === "delete" ? "ew-action-danger" : ""}`}>
+              {actionModal.type === "cancel" ? "This cancels the reservation. Payments already collected are not automatically refunded; review any refund obligation separately." : actionModal.type === "delete" ? "This archives the booking from active administration views. Financial and audit records should remain retained." : "Restrict this guest from making future reservations. The backend must also screen all accompanying guests for this restriction."}
+            </div>
+            {actionModal.type !== "delete" && <label className="ew-action-reason">Reason (required)<textarea required rows={4} placeholder={actionModal.type === "cancel" ? "Enter the cancellation reason..." : "Enter the reason for restricting this guest..."} value={actionForm.reason || ""} onChange={e => setActionForm(f => ({ ...f, reason: e.target.value }))} /></label>}
+            {(actionModal.type === "delete" || actionModal.type === "blacklist") && <label className="ew-action-confirm"><input type="checkbox" checked={!!actionForm.acknowledge} onChange={e => setActionForm(f => ({ ...f, acknowledge: e.target.checked }))} /><span>I understand the consequences and confirm this action.</span></label>}
+          </>}
+          {modalError && <div role="alert" className="ew-action-error">{modalError}</div>}
+        </div>
+        <div className="ew-action-footer"><button type="button" className="ew-action-secondary" onClick={closeAction} disabled={busy}>Go back</button><button type="submit" disabled={busy} className={`ew-action-submit ew-action-${actionModal.type}`}>
+          {busy ? "Processing…" : { edit: "Save changes", cancel: "Cancel reservation", delete: "Archive booking", blacklist: "Blacklist guest" }[actionModal.type]}
+        </button></div>
+      </form>
+    </div>}
+    {refundModal && <div className="ew-action-backdrop" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setRefundModal(null) }}>
+      <form className="ew-action-modal" role="dialog" aria-modal="true" aria-labelledby="ew-refund-title" onSubmit={submitRefund}>
+        <div className="ew-action-header"><div><div className="ew-action-eyebrow">EWALEL COTTAGES · FINANCIAL REVIEW</div><h2 id="ew-refund-title">Refund processing</h2><p>Reservation #{refundModal.ref || refundModal.id}</p></div><button type="button" className="ew-action-close" onClick={() => setRefundModal(null)} disabled={busy}>×</button></div>
+        <div className="ew-action-body">
+          {refundSummary ? <>
+            <div className="ew-refund-totals"><span>Revised booking total: <b>{fmt(refundSummary.booking_total)}</b></span><span>Verified payments: <b>{fmt(refundSummary.verified_paid)}</b></span><span>Already refunded: <b>{fmt(refundSummary.completed_refunds)}</b></span><span>Potential refund: <b>{fmt(refundSummary.potential_overpayment)}</b></span></div>
+            <p className="ew-action-info">Refunds are subject to the booking cancellation policy. Recording an M-PESA or card refund does not send money. Process the transfer through your approved payment provider first, then enter its verified reference.</p>
+            <div className="ew-action-grid">
+              <label>Refund amount (KES)<input required type="number" min="0.01" step="0.01" max={refundSummary.maximum_refundable} value={refundForm.amount} onChange={e => setRefundForm(f => ({ ...f, amount: e.target.value }))} /></label>
+              <label>Refund method<select value={refundForm.method} onChange={e => setRefundForm(f => ({ ...f, method: e.target.value }))}><option value="mpesa">M-PESA</option><option value="cash">Cash</option><option value="card">Card</option><option value="bank">Bank transfer</option></select></label>
+              <label>Refund status<select value={refundForm.status} onChange={e => setRefundForm(f => ({ ...f, status: e.target.value }))}><option value="pending">Pending — not paid</option><option value="completed">Completed — externally verified</option></select></label>
+              <label>External transaction reference<input required={refundForm.status === "completed"} value={refundForm.reference} placeholder="Receipt / transaction ID" onChange={e => setRefundForm(f => ({ ...f, reference: e.target.value }))} /></label>
+            </div>
+            <label className="ew-action-reason">Reason / approval notes<textarea required rows={3} value={refundForm.reason} onChange={e => setRefundForm(f => ({ ...f, reason: e.target.value }))} /></label>
+          </> : <p>Loading verified payment information…</p>}
+          {modalError && <div role="alert" className="ew-action-error">{modalError}</div>}
+        </div>
+        <div className="ew-action-footer"><button type="button" className="ew-action-secondary" onClick={() => setRefundModal(null)} disabled={busy}>Close / Later</button><button type="submit" className="ew-action-submit" disabled={busy || !refundSummary || Number(refundForm.amount) <= 0}>{busy ? "Saving…" : "Record refund"}</button></div>
+      </form>
+    </div>}
     {addOpen && <div role="dialog" aria-modal="true" aria-label="Add customer" style={{ position: "fixed", inset: 0, background: "#0009", zIndex: 9999, display: "grid", placeItems: "center", padding: 15 }}><form onSubmit={addCustomer} style={{ ...card, width: "min(100%,480px)", boxShadow: "0 20px 60px #0004" }}><h2>Add Customer</h2><p className="crm-muted">Create a customer contact record without creating a booking.</p>{[["name", "Full name"], ["phone", "Phone"], ["email", "Email"]].map(([k, l]) => <label key={k} style={{ display: "block", marginBottom: 12 }}>{l}<input className="crm-input" type={k === "email" ? "email" : "text"} required={k === "name"} value={newCustomer[k]} onChange={e => setNewCustomer({ ...newCustomer, [k]: e.target.value })} /></label>)}<div className="crm-actions"><button type="submit" disabled={busy} className="crm-btn crm-primary">Save Customer</button><button type="button" className="crm-btn" onClick={() => setAddOpen(false)}>Cancel</button></div></form></div>}
     <p className="crm-muted crm-mini" style={{ marginTop: 15 }}>Customer profiles are grouped by phone or email, never name alone. Payments and M-PESA receipts reflect database records; M-PESA verification remains a separate administrator process. Store and export guest information securely.</p>
   </div>;

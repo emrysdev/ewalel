@@ -520,6 +520,27 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
   });
 }));
 
+// Booking restrictions: server-side check for primary AND accompanying guests.
+const normalizeGuestName = value => String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+async function assertGuestsAllowed(conn, primary, companions) {
+  const people = [primary, ...companions];
+  const names = [...new Set(people.map(p => normalizeGuestName(p.name || p.full_name)).filter(Boolean))];
+  if (!names.length) return;
+  const placeholders = names.map(() => "?").join(",");
+  const [blocked] = await conn.execute(
+    `SELECT normalized_name, phone, email FROM booking_blacklist WHERE active=1 AND normalized_name IN (${placeholders})`, names
+  );
+  for (const person of people) {
+    const name = normalizeGuestName(person.name || person.full_name);
+    const phone = String(person.phone || "").replace(/\D/g, "");
+    const email = String(person.email || "").trim().toLowerCase();
+    // A name-only blacklist entry blocks exact-name matches, including accompanying guests.
+    // Where contact details are available, use them to reduce mistaken identity.
+    const match = blocked.some(row => row.normalized_name === name);
+    if (match) { const err = new Error("This reservation cannot be accepted online. Please contact the property."); err.status=403; throw err; }
+  }
+}
+
 // ======================================================
 // PUBLIC COTTAGES
 // ======================================================
@@ -1317,6 +1338,7 @@ app.post("/api/bookings", asyncRoute(async (req, res) => {
 
   try {
     await conn.beginTransaction();
+    await assertGuestsAllowed(conn, { name, phone, email }, additionalGuests);
 
     const [cottages] = await conn.execute(
       "SELECT * FROM cottages WHERE id = ? FOR UPDATE",
@@ -1499,6 +1521,7 @@ app.get("/api/admin/bookings", auth, asyncRoute(async (req, res) => {
       c.name AS cottage_name
     FROM bookings b
     LEFT JOIN cottages c ON c.id = b.unit_id
+    WHERE NOT EXISTS (SELECT 1 FROM booking_admin_archives a WHERE a.booking_id=b.id)
     ORDER BY b.created_at DESC
   `);
 
@@ -1592,6 +1615,139 @@ app.patch(
   })
 );
 
+
+// Read-only administrative status indicators. These do not expose blacklist data publicly.
+app.get("/api/admin/booking-flags", auth, asyncRoute(async(req,res)=>{
+  const [blacklist,archived] = await Promise.all([
+    query("SELECT id,full_name,phone,email,reason,created_at FROM booking_blacklist WHERE active=1"),
+    query("SELECT booking_id,archived_by,created_at FROM booking_admin_archives")
+  ]);
+  res.json({blacklist,archived});
+}));
+
+// Archived bookings are excluded from active Reservations but remain visible in guest history.
+app.get("/api/admin/archived-bookings", auth, asyncRoute(async(req,res)=>{
+  const rows = await query(`SELECT b.*,c.name AS cottage_name,1 AS archived
+    FROM bookings b JOIN booking_admin_archives a ON a.booking_id=b.id
+    LEFT JOIN cottages c ON c.id=b.unit_id ORDER BY b.created_at DESC`);
+  if (!rows.length) return res.json([]);
+  const ids=rows.map(b=>String(b.id));
+  const guestRows=await query(`SELECT booking_id,guest_order,full_name,phone FROM booking_guests
+    WHERE booking_id IN (${ids.map(()=>"?").join(",")}) ORDER BY guest_order`,ids);
+  const grouped=new Map();
+  for(const guest of guestRows){const id=String(guest.booking_id);if(!grouped.has(id))grouped.set(id,[]);grouped.get(id).push(guest);}
+  res.json(rows.map(b=>({...b,additional_guests:grouped.get(String(b.id))||[]})));
+}));
+
+// Restricted guest administration (authenticated). Never expose blacklist to the public.
+app.get("/api/admin/blacklist", auth, asyncRoute(async (req,res) => {
+  res.json(await query("SELECT id,full_name,phone,email,reason,active,created_at FROM booking_blacklist ORDER BY created_at DESC"));
+}));
+app.post("/api/admin/blacklist", auth, asyncRoute(async (req,res) => {
+  const name=String(req.body?.name||"").trim(), reason=String(req.body?.reason||"").trim();
+  const phone=String(req.body?.phone||"").trim(), email=String(req.body?.email||"").trim().toLowerCase();
+  if(!name || name.length>80 || !reason || reason.length>500) return res.status(400).json({error:"Valid guest name and documented reason required"});
+  await query("INSERT INTO booking_blacklist (full_name,normalized_name,phone,email,reason,active,created_by) VALUES (?,?,?,?,?,1,?)", [name,normalizeGuestName(name),phone,email,reason,String(req.admin.email||"Admin")]);
+  res.status(201).json({ok:true});
+}));
+app.patch("/api/admin/blacklist/:id", auth, asyncRoute(async(req,res)=>{
+  if(!/^[1-9]\d*$/.test(String(req.params.id)) || typeof req.body?.active!=="boolean") return res.status(400).json({error:"Invalid request"});
+  const result=await query("UPDATE booking_blacklist SET active=? WHERE id=?",[req.body.active?1:0,req.params.id]);
+  if(!result.affectedRows) return res.status(404).json({error:"Entry not found"});
+  res.json({ok:true});
+}));
+
+// Booking amendments and cancellation, preserving the original payment ledger.
+app.patch("/api/admin/bookings/:id/details", auth, asyncRoute(async (req,res)=>{
+  const id=String(req.params.id||""), data=req.body||{};
+  const unit=String(data.cottage_id||""), start=String(data.check_in||""), end=String(data.check_out||"");
+  const count=Number(data.guests), companions=data.additional_guests;
+  if(!validId(id)||!validCottageId(unit)||!validDate(start)||!validDate(end)||start>=end||!Number.isInteger(count)||count<1||!Array.isArray(companions)||companions.length!==count-1||companions.some(p=>!String(p.name||"").trim()||String(p.name).length>80)) return res.status(400).json({error:"Invalid booking details or accompanying guests"});
+  const conn=await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows]=await conn.execute("SELECT * FROM bookings WHERE id=? FOR UPDATE",[id]);
+    if(!rows.length){await conn.rollback();return res.status(404).json({error:"Booking not found"});}
+    const b=rows[0];
+    if(b.status==="cancelled"){await conn.rollback();return res.status(409).json({error:"Cancelled bookings cannot be edited"});}
+    const [stays]=await conn.execute("SELECT stay_status FROM crm_guest_stays WHERE booking_reference=?",[b.ref]);
+    if(stays.some(x=>x.stay_status!=="not_checked_in")){await conn.rollback();return res.status(409).json({error:"Cannot edit an already checked-in or checked-out stay"});}
+    const [units]=await conn.execute("SELECT id,price,cap,active FROM cottages WHERE id=? FOR UPDATE",[unit]);
+    if(!units.length||!units[0].active||count>Number(units[0].cap)){await conn.rollback();return res.status(409).json({error:"Cottage unavailable or capacity exceeded"});}
+    const [overlap]=await conn.execute("SELECT id FROM bookings WHERE unit_id=? AND id<>? AND status<>'cancelled' AND check_in<? AND check_out>? LIMIT 1",[unit,id,end,start]);
+    if(overlap.length){await conn.rollback();return res.status(409).json({error:"Another booking occupies these dates"});}
+    const [maintenance]=await conn.execute("SELECT id FROM maintenance WHERE cottage_id=? AND status IN ('scheduled','in_progress') AND scheduled_date>=? AND scheduled_date<? LIMIT 1",[unit,start,end]);
+    if(maintenance.length){await conn.rollback();return res.status(409).json({error:"Maintenance overlaps these dates"});}
+    await assertGuestsAllowed(conn,{name:b.name,phone:b.phone,email:b.email},companions);
+    const nights=Math.round((Date.parse(end+'T12:00:00Z')-Date.parse(start+'T12:00:00Z'))/86400000);
+    const total=nights*Number(units[0].price);
+    if(!Number.isFinite(total)||total<0){await conn.rollback();return res.status(400).json({error:"Invalid calculated total"});}
+    await conn.execute("UPDATE bookings SET unit_id=?,check_in=?,check_out=?,nights=?,guests=?,total=? WHERE id=?",[unit,start,end,nights,count,total,id]);
+    await conn.execute("DELETE FROM booking_guests WHERE booking_id=?",[id]);
+    for(let i=0;i<companions.length;i++) await conn.execute("INSERT INTO booking_guests (booking_id,guest_order,full_name,phone) VALUES (?,?,?,?)",[id,i+2,String(companions[i].name).trim(),String(companions[i].phone||"").trim()]);
+    await conn.execute("INSERT INTO booking_admin_actions (booking_id,action,reason,actor) VALUES (?,'edit',?,?)",[id,`Booking amended; old total ${b.total}, new total ${total}`,String(req.admin.email||"Admin")]);
+    await conn.commit();res.json({ok:true,total,refund_review_required:true});
+  }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+}));
+
+app.post("/api/admin/bookings/:id/cancel",auth,asyncRoute(async(req,res)=>{
+  const id=String(req.params.id||""), reason=String(req.body?.reason||"").trim();
+  if(!validId(id)||!reason||reason.length>500)return res.status(400).json({error:"Booking ID and cancellation reason required"});
+  const conn=await pool.getConnection();
+  try{await conn.beginTransaction();
+    const [rows]=await conn.execute("SELECT id,ref,status FROM bookings WHERE id=? FOR UPDATE",[id]);
+    if(!rows.length){await conn.rollback();return res.status(404).json({error:"Booking not found"});}
+    if(rows[0].status==="cancelled"){await conn.rollback();return res.status(409).json({error:"Already cancelled"});}
+    const [stays]=await conn.execute("SELECT stay_status FROM crm_guest_stays WHERE booking_reference=?",[rows[0].ref]);
+    if(stays.some(x=>x.stay_status!=="not_checked_in")){await conn.rollback();return res.status(409).json({error:"Checked-in/out stays cannot be cancelled here"});}
+    await conn.execute("UPDATE bookings SET status='cancelled' WHERE id=?",[id]);
+    await conn.execute("INSERT INTO booking_admin_actions (booking_id,action,reason,actor) VALUES (?,'cancel',?,?)",[id,reason,String(req.admin.email||"Admin")]);
+    await conn.commit();res.json({ok:true,refund_review_required:true});
+  }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+}));
+
+// Archiving retains booking and financial audit records.
+app.delete("/api/admin/bookings/:id",auth,asyncRoute(async(req,res)=>{
+  const id=String(req.params.id||"");if(!validId(id))return res.status(400).json({error:"Invalid booking ID"});
+  const conn=await pool.getConnection();
+  try{await conn.beginTransaction();
+    const [rows]=await conn.execute("SELECT id,status FROM bookings WHERE id=? FOR UPDATE",[id]);
+    if(!rows.length){await conn.rollback();return res.status(404).json({error:"Booking not found"});}
+    if(rows[0].status!=="cancelled"){await conn.rollback();return res.status(409).json({error:"Cancel the booking before archiving it"});}
+    await conn.execute("INSERT INTO booking_admin_archives (booking_id,archived_by) VALUES (?,?)",[id,String(req.admin.email||"Admin")]);
+    await conn.commit();res.json({ok:true,archived:true});
+  }catch(e){await conn.rollback();if(e.code==="ER_DUP_ENTRY")return res.status(409).json({error:"Already archived"});throw e;}finally{conn.release();}
+}));
+
+// Financial review and refund audit. This does NOT initiate a provider transfer.
+app.get("/api/admin/bookings/:id/refund-summary",auth,asyncRoute(async(req,res)=>{
+  const id=String(req.params.id||"");if(!validId(id))return res.status(400).json({error:"Invalid booking ID"});
+  const [rows]=await query("SELECT id,total,status FROM bookings WHERE id=?",[id]);
+  if(!rows.length)return res.status(404).json({error:"Booking not found"});
+  const [payments]=await query("SELECT COALESCE(SUM(amount),0) AS amount FROM payments WHERE booking_id=? AND status='completed'",[id]);
+  const [refunds]=await query("SELECT COALESCE(SUM(CASE WHEN status='completed' THEN amount ELSE 0 END),0) AS completed,COALESCE(SUM(CASE WHEN status='pending' THEN amount ELSE 0 END),0) AS pending FROM booking_refunds WHERE booking_id=?",[id]);
+  const paid=Number(payments.amount), completed=Number(refunds.completed), pending=Number(refunds.pending);
+  const booking=rows[0], due=booking.status==='cancelled'?0:Number(booking.total);
+  res.json({booking_total:Number(booking.total),verified_paid:paid,completed_refunds:completed,pending_refunds:pending,maximum_refundable:Math.max(0,paid-completed-pending),potential_overpayment:Math.max(0,paid-completed-due),cancelled:booking.status==='cancelled'});
+}));
+app.post("/api/admin/bookings/:id/refunds",auth,asyncRoute(async(req,res)=>{
+  const id=String(req.params.id||""),amount=Number(req.body?.amount),method=String(req.body?.method||""),status=String(req.body?.status||"pending"),reference=String(req.body?.reference||"").trim(),reason=String(req.body?.reason||"").trim();
+  if(!validId(id)||!Number.isFinite(amount)||amount<=0||Math.round(amount*100)!==amount*100||!['cash','mpesa','card','bank'].includes(method)||!['pending','completed'].includes(status)||!reason||reason.length>500||reference.length>120)return res.status(400).json({error:"Enter valid refund amount, method, status and reason"});
+  if(status==='completed'&&!reference)return res.status(400).json({error:"A completed refund requires a verified external receipt/reference"});
+  const conn=await pool.getConnection();
+  try{await conn.beginTransaction();
+    const [rows]=await conn.execute("SELECT id FROM bookings WHERE id=? FOR UPDATE",[id]);
+    if(!rows.length){await conn.rollback();return res.status(404).json({error:"Booking not found"});}
+    const [bookingDetails]=await conn.execute("SELECT total,status FROM bookings WHERE id=?",[id]);
+    const [payments]=await conn.execute("SELECT COALESCE(SUM(amount),0) AS paid FROM payments WHERE booking_id=? AND status='completed'",[id]);
+    const [refunded]=await conn.execute("SELECT COALESCE(SUM(amount),0) AS reserved FROM booking_refunds WHERE booking_id=? AND status IN ('pending','completed')",[id]);
+    const due=bookingDetails[0].status==='cancelled'?0:Number(bookingDetails[0].total);
+    if(amount>Math.max(0,Number(payments[0].paid)-Number(refunded[0].reserved)-due)+0.00001){await conn.rollback();return res.status(409).json({error:"Refund exceeds calculated overpayment; review refund policy and booking balance"});}
+    if(amount>Number(payments[0].paid)-Number(refunded[0].reserved)+0.00001){await conn.rollback();return res.status(409).json({error:"Refund exceeds available verified payments"});}
+    await conn.execute("INSERT INTO booking_refunds (booking_id,amount,method,status,reference,reason,recorded_by) VALUES (?,?,?,?,?,?,?)",[id,amount,method,status,reference,reason,String(req.admin.email||"Admin")]);
+    await conn.commit();res.status(201).json({ok:true,status,external_transfer_initiated:false});
+  }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+}));
 
 // ======================================================
 // ADMIN STAY MANAGEMENT — authenticated, audited transitions
@@ -2620,6 +2776,7 @@ app.post("/api/admin/manual-bookings", auth, asyncRoute(async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    await assertGuestsAllowed(conn, { name, phone, email }, additionalGuests);
     // Lock the cottage row: concurrent manual/web bookings cannot both pass availability checks.
     const [cottages] = await conn.execute("SELECT id,name,price,cap,active FROM cottages WHERE id=? FOR UPDATE", [cottageId]);
     const cottage = cottages[0];

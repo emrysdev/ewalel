@@ -3612,3 +3612,70 @@ select {
     height: 175px
   }
 }
+
+.booking-action-buttons {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.booking-action-buttons button {
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.booking-action-buttons .edit-btn {
+  background: #e7f2ff;
+  color: #174d83;
+}
+
+.booking-action-buttons .cancel-btn {
+  background: #fff3df;
+  color: #87520b;
+}
+
+.booking-action-buttons .delete-btn {
+  background: #ffebed;
+  color: #9d2937;
+}
+
+.booking-action-buttons .blacklist-btn {
+  background: #f1eafa;
+  color: #65328c;
+}
+
+/* Ewalel booking action modals */
+.ew-action-backdrop{position:fixed;inset:0;background:rgba(4,30,35,.62);z-index:99999;display:flex;justify-content:center;align-items:center;padding:18px;backdrop-filter:blur(3px)}
+.ew-action-modal{width:min(100%,660px);max-height:min(90vh,850px);overflow:auto;background:#fff;border-radius:24px;box-shadow:0 24px 80px #001b2250;color:#14383c;display:flex;flex-direction:column}
+.ew-action-header{padding:26px 28px 18px;border-bottom:1px solid #e2ece9;display:flex;justify-content:space-between;gap:15px}.ew-action-header h2{margin:7px 0;font-size:25px;color:#08373c}.ew-action-header p{margin:0;color:#648087;font-size:13px}.ew-action-eyebrow{font-size:10px;font-weight:800;letter-spacing:1.5px;color:#008e79}.ew-action-close{width:35px;height:35px;border-radius:50%;background:#f2f7f5;border:0;font-size:25px;cursor:pointer;color:#34585c}.ew-action-body{padding:22px 28px;overflow-y:auto}.ew-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.ew-action-grid label,.ew-action-reason{display:flex;flex-direction:column;gap:7px;font-size:13px;font-weight:700;color:#24484b}.ew-action-wide{grid-column:1/-1}.ew-action-grid input,.ew-action-grid select,.ew-action-reason textarea{width:100%;box-sizing:border-box;padding:12px 13px;border:1px solid #cbdcd8;border-radius:11px;font:inherit;color:#173b40;background:white;outline-color:#008e79}.ew-action-reason{margin-top:18px}.ew-action-guests{margin-top:20px}.ew-action-guests h3{font-size:15px}.ew-action-guest{padding:15px;background:#f1f8f5;border:1px solid #d5e6df;border-radius:14px;margin-top:10px}.ew-action-guest strong{display:block;margin-bottom:10px;font-size:13px}.ew-action-info{padding:14px 16px;border-radius:12px;background:#edf6f3;border:1px solid #d2e6df;font-size:13px;line-height:1.55;margin-top:18px}.ew-action-danger{background:#fff0ef;border-color:#f3c6c2;color:#8e3431}.ew-action-confirm{display:flex;align-items:flex-start;gap:10px;margin-top:20px;font-size:13px}.ew-action-confirm input{margin-top:3px}.ew-action-error{margin-top:16px;color:#a3272c;background:#fff1f1;padding:11px;border-radius:9px;font-size:13px}.ew-action-footer{display:flex;justify-content:flex-end;gap:10px;padding:17px 28px 24px;border-top:1px solid #e2ece9}.ew-action-footer button{border-radius:999px;padding:11px 20px;font-weight:700;font-size:13px;cursor:pointer;border:1px solid #d2e0dc}.ew-action-footer button:disabled{opacity:.55;cursor:not-allowed}.ew-action-secondary{background:#fff;color:#23494d}.ew-action-submit{background:#087d6c;color:#fff;border-color:#087d6c!important}.ew-action-cancel{background:#ad6b12;border-color:#ad6b12!important}.ew-action-delete{background:#b83737;border-color:#b83737!important}.ew-action-blacklist{background:#7350a6;border-color:#7350a6!important}@media(max-width:560px){.ew-action-grid{grid-template-columns:1fr}.ew-action-header,.ew-action-body,.ew-action-footer{padding-left:18px;padding-right:18px}.ew-action-header h2{font-size:21px}.ew-action-footer{flex-wrap:wrap}.ew-action-footer button{flex:1}}
+
+/* Compact booking actions */
+.ew-crm .crm-booking-actions{display:flex;flex-wrap:nowrap;gap:9px;overflow-x:auto;padding-bottom:5px}
+.ew-crm .crm-booking-actions .crm-btn{flex:0 0 auto;border-radius:999px;padding:8px 12px;font-size:12px;white-space:nowrap}
+.ew-refund-totals{display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#f1f8f5;padding:16px;border-radius:12px;font-size:13px}
+@media(max-width:560px){.ew-refund-totals{grid-template-columns:1fr}}
+
+/* Ewalel booking action modals */
+.ew-action-backdrop{position:fixed;inset:0;background:rgba(4,30,35,.62);z-index:99999;display:flex;justify-content:center;align-items:center;padding:18px;backdrop-filter:blur(3px)}
+.ew-action-modal{width:min(100%,660px);max-height:min(90vh,850px);overflow:auto;background:#fff;border-radius:24px;box-shadow:0 24px 80px #001b2250;color:#14383c;display:flex;flex-direction:column}
+.ew-action-header{padding:26px 28px 18px;border-bottom:1px solid #e2ece9;display:flex;justify-content:space-between;gap:15px}.ew-action-header h2{margin:7px 0;font-size:25px;color:#08373c}.ew-action-header p{margin:0;color:#648087;font-size:13px}.ew-action-eyebrow{font-size:10px;font-weight:800;letter-spacing:1.5px;color:#008e79}.ew-action-close{width:35px;height:35px;border-radius:50%;background:#f2f7f5;border:0;font-size:25px;cursor:pointer;color:#34585c}.ew-action-body{padding:22px 28px;overflow-y:auto}.ew-action-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.ew-action-grid label,.ew-action-reason{display:flex;flex-direction:column;gap:7px;font-size:13px;font-weight:700;color:#24484b}.ew-action-wide{grid-column:1/-1}.ew-action-grid input,.ew-action-grid select,.ew-action-reason textarea{width:100%;box-sizing:border-box;padding:12px 13px;border:1px solid #cbdcd8;border-radius:11px;font:inherit;color:#173b40;background:white;outline-color:#008e79}.ew-action-reason{margin-top:18px}.ew-action-guests{margin-top:20px}.ew-action-guests h3{font-size:15px}.ew-action-guest{padding:15px;background:#f1f8f5;border:1px solid #d5e6df;border-radius:14px;margin-top:10px}.ew-action-guest strong{display:block;margin-bottom:10px;font-size:13px}.ew-action-info{padding:14px 16px;border-radius:12px;background:#edf6f3;border:1px solid #d2e6df;font-size:13px;line-height:1.55;margin-top:18px}.ew-action-danger{background:#fff0ef;border-color:#f3c6c2;color:#8e3431}.ew-action-confirm{display:flex;align-items:flex-start;gap:10px;margin-top:20px;font-size:13px}.ew-action-confirm input{margin-top:3px}.ew-action-error{margin-top:16px;color:#a3272c;background:#fff1f1;padding:11px;border-radius:9px;font-size:13px}.ew-action-footer{display:flex;justify-content:flex-end;gap:10px;padding:17px 28px 24px;border-top:1px solid #e2ece9}.ew-action-footer button{border-radius:999px;padding:11px 20px;font-weight:700;font-size:13px;cursor:pointer;border:1px solid #d2e0dc}.ew-action-footer button:disabled{opacity:.55;cursor:not-allowed}.ew-action-secondary{background:#fff;color:#23494d}.ew-action-submit{background:#087d6c;color:#fff;border-color:#087d6c!important}.ew-action-cancel{background:#ad6b12;border-color:#ad6b12!important}.ew-action-delete{background:#b83737;border-color:#b83737!important}.ew-action-blacklist{background:#7350a6;border-color:#7350a6!important}@media(max-width:560px){.ew-action-grid{grid-template-columns:1fr}.ew-action-header,.ew-action-body,.ew-action-footer{padding-left:18px;padding-right:18px}.ew-action-header h2{font-size:21px}.ew-action-footer{flex-wrap:wrap}.ew-action-footer button{flex:1}}
+
+/* Compact booking actions */
+.ew-crm .crm-booking-actions{display:flex;flex-wrap:nowrap;gap:9px;overflow-x:auto;padding-bottom:5px}
+.ew-crm .crm-booking-actions .crm-btn{flex:0 0 auto;border-radius:999px;padding:8px 12px;font-size:12px;white-space:nowrap}
+.ew-refund-totals{display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#f1f8f5;padding:16px;border-radius:12px;font-size:13px}
+@media(max-width:560px){.ew-refund-totals{grid-template-columns:1fr}}
+
+/* No horizontal booking-action scrollbar; pills wrap with breathing room. */
+.ew-crm .crm-booking-actions{display:flex!important;flex-wrap:wrap!important;gap:10px 12px!important;overflow:visible!important;width:100%!important;padding:0!important;align-items:center!important}
+.ew-crm .crm-booking-actions .crm-btn{flex:0 0 auto!important;min-width:max-content!important;max-width:none!important;padding:8px 13px!important;border-radius:999px!important;white-space:nowrap!important;font-size:11px!important}
+.ew-crm .crm-status-badge{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;font-size:11px;font-weight:750;margin:3px 5px 3px 0}
+.ew-crm .crm-status-blacklisted{background:#fce8ec;color:#962c45;border:1px solid #f0bcc8}
+.ew-crm .crm-status-archived{background:#fff2dd;color:#87520b;border:1px solid #eed2a5}
