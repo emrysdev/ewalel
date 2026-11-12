@@ -288,7 +288,7 @@ app.post(
     const filename = String(req.headers["x-photo-filename"] || "");
 
     // Accept only safe image filenames.
-    if (!/^[a-zA-Z0-9_-]+\.(webp|jpg|jpeg|png)$/i.test(filename)) {
+    if (!/^[a-zA-Z0-9_-]{1,150}\.(webp|jpg|jpeg|png)$/i.test(filename)) {
       return res.status(400).json({
         error: "Invalid photograph filename"
       });
