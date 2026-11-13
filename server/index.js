@@ -14,6 +14,7 @@ import {
 } from "node:url";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import compression from "compression";
 
 
 
@@ -26,11 +27,9 @@ const __filename = fileURLToPath(
   import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const compression = require("compression");
+const app = express();
 
 app.use(compression());
-
-const app = express();
 
 app.get("/api/debug", (req, res) => {
   res.json({
