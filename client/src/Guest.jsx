@@ -1,4 +1,4 @@
-import { ContactPage } from "./components/ContactReviews.jsx";
+// Load the Contact page only when a visitor opens it.
 // 
 import { Copy, Check } from "lucide-react";
 import React, { useEffect, useState } from "react";
@@ -23,6 +23,9 @@ import {
 } from "lucide-react";
 import "./guest.css";
 
+// Lazy-load the Contact page after React has been imported.
+const ContactPage = React.lazy(() => import("./components/ContactReviews.jsx").then(module => ({ default: module.ContactPage })));
+
 const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
 const API = (
   import.meta.env.VITE_API_URL ||
@@ -41,7 +44,7 @@ const PAYBILL = import.meta.env.VITE_MPESA_PAYBILL || "";
 
 // const HERO_IMAGE = "/images/exterior.jpeg";
 const HERO_IMAGE = "/images/ewalel-hero1.png";
-const LOGO_IMAGE = "/images/ewalel-logo.png";
+const LOGO_IMAGE = "/images/ewalel-logo-optimized.webp";
 
 const photos = [
   "/images/exterior.jpeg",
@@ -229,7 +232,7 @@ function CottageGallery({ cottage, fallback, onBook }) {
     <>
       <button className="ew-cottage-gallery-trigger" type="button" onClick={() => setOpen(true)}
         aria-label={`View photos of ${cottage.name}`}>
-        <img src={items[0]} alt={`${cottage.name} — view photo gallery`} />
+        <img src={items[0]} alt={`${cottage.name} — view photo gallery`} loading="lazy" decoding="async" />
         <span className="ew-gallery-view-label"><Images size={16} /> View photos{items.length > 1 ? ` (${items.length})` : ""}</span>
       </button>
       {open && (
@@ -241,7 +244,7 @@ function CottageGallery({ cottage, fallback, onBook }) {
             </header>
             <div className="ew-photo-stage" onTouchStart={(e) => { touchStart.current = e.touches[0].clientX; }}
               onTouchEnd={(e) => { if (touchStart.current === null) return; const dx = e.changedTouches[0].clientX - touchStart.current; if (Math.abs(dx) > 45 && items.length > 1) (dx < 0 ? next : previous)(); touchStart.current = null; }}>
-              <img src={items[selected]} alt={`${cottage.name} photograph ${selected + 1} of ${items.length}`} />
+              <img src={items[selected]} alt={`${cottage.name} photograph ${selected + 1} of ${items.length}`} decoding="async" />
               {items.length > 1 && <>
                 <button type="button" className="ew-photo-arrow ew-photo-prev" onClick={previous} aria-label="Previous photograph"><ChevronLeft size={26}/></button>
                 <button type="button" className="ew-photo-arrow ew-photo-next" onClick={next} aria-label="Next photograph"><ChevronRight size={26}/></button>
@@ -252,7 +255,7 @@ function CottageGallery({ cottage, fallback, onBook }) {
               {items.map((url, i) => <button key={`${url}-${i}`} type="button" onClick={() => setSelected(i)}
                 className={i === selected ? "ew-photo-thumb active" : "ew-photo-thumb"}
                 aria-label={`Show photograph ${i + 1}`} aria-pressed={i === selected}>
-                <img src={url} alt="" loading="lazy" />
+                <img src={url} alt="" loading="lazy" decoding="async" />
               </button>)}
             </div>}
             {notice && <p className="ew-photo-notice">{notice}</p>}
@@ -399,6 +402,9 @@ function Logo({ onClick }) {
           className="ew-logo-image"
           src={LOGO_IMAGE}
           alt="Ewalel Cottages"
+          width="180"
+          height="130"
+          decoding="async"
           onError={() => setLogoFailed(true)}
         />
       ) : (
@@ -761,6 +767,11 @@ export default function Guest() {
               className="ew-hero-image"
               src={HERO_IMAGE}
               alt="Ewalel Cottages exterior"
+              width="1600"
+              height="900"
+              loading="eager"
+              fetchPriority="high"
+              decoding="async"
             />
 
             <div className="ew-hero-shade" />
@@ -846,10 +857,14 @@ export default function Guest() {
               <img
                 src="/images/lounge.jpeg"
                 alt="Ewalel lounge"
+                loading="lazy"
+                decoding="async"
               />
               <img
                 src="/images/bedroom.jpeg"
                 alt="Ewalel bedroom"
+                loading="lazy"
+                decoding="async"
               />
             </div>
           </section>
@@ -947,6 +962,8 @@ export default function Guest() {
                 <img
                   key={photo}
                   src={photo}
+                  loading="lazy"
+                  decoding="async"
                   alt={[
                     "Comfortable lounge",
                     "Cottage interior",
@@ -1471,7 +1488,11 @@ export default function Guest() {
 
 
       {/* CONTACT */}
-      {page === "Contact Us" && <ContactPage />}
+      {page === "Contact Us" && (
+        <React.Suspense fallback={<main className="ew-page"><p>Loading Contact Us…</p></main>}>
+          <ContactPage />
+        </React.Suspense>
+      )}
 
       {/* FOOTER */}
 
