@@ -471,12 +471,7 @@ function PublicAvailabilityCalendar({ cottageId, checkIn, checkOut, onDatesChang
         <strong>{monthTitle}</strong>
         <button type="button" aria-label="Next month" onClick={() => shift(1)}><ChevronRight size={19}/></button>
       </div>
-      <div className="ew-calendar-shortcuts" aria-label="Jump to a future month">
-        <button type="button" onClick={() => jump(0)}>This month</button>
-        <button type="button" onClick={() => jump(3)}>+3 months</button>
-        <button type="button" onClick={() => jump(6)}>+6 months</button>
-        <button type="button" onClick={() => jump(12)}>+1 year</button>
-      </div>
+    
       <div className="ew-calendar-days">
         {["M", "T", "W", "T", "F", "S", "S"].map((day, i) =>
           <span key={`weekday-${i}`} className="ew-calendar-weekday">{day}</span>)}
