@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./VisitorAnalytics.css";
 
 const apiBase = () => (
@@ -84,6 +84,71 @@ function DataTable({ headings, rows, empty, minWidth = 560 }) {
   </table></div>;
 }
 
+
+// Leaflet is loaded only for the admin analytics map; no React dependency is required.
+const leafletCss = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+const leafletJs = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+let leafletPromise;
+function loadLeaflet() {
+  if (window.L) return Promise.resolve(window.L);
+  if (!leafletPromise) {
+    leafletPromise = new Promise((resolve, reject) => {
+      if (!document.querySelector('link[data-ewalel-leaflet]')) {
+        const link = document.createElement("link");
+        link.rel = "stylesheet"; link.href = leafletCss;
+        link.dataset.ewalelLeaflet = "true";
+        document.head.appendChild(link);
+      }
+      const script = document.createElement("script");
+      script.src = leafletJs; script.async = true;
+      script.onload = () => window.L ? resolve(window.L) : reject(new Error("Map library unavailable"));
+      script.onerror = () => reject(new Error("Could not load the map library"));
+      document.head.appendChild(script);
+    }).catch(error => { leafletPromise = null; throw error; });
+  }
+  return leafletPromise;
+}
+function VisitorMap({ locations }) {
+  const containerRef = useRef(null);
+  const [mapError, setMapError] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    let map;
+    loadLeaflet().then(L => {
+      if (cancelled || !containerRef.current) return;
+      map = L.map(containerRef.current, { scrollWheelZoom: false }).setView([0, 20], 2);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 18,
+      }).addTo(map);
+      const bounds = [];
+      locations.forEach(item => {
+        const coords = [item.latitude, item.longitude];
+        bounds.push(coords);
+        const circle = L.circleMarker(coords, {
+          radius: Math.min(19, 6 + Math.sqrt(item.views) * 2),
+          color: "#0a5448", fillColor: "#18836f", fillOpacity: 0.7, weight: 2,
+        }).addTo(map);
+        const popup = document.createElement("div");
+        const title = document.createElement("strong");
+        title.textContent = item.label;
+        const count = document.createElement("div");
+        count.textContent = `${number(item.views)} page views`;
+        popup.append(title, count);
+        circle.bindPopup(popup);
+      });
+      if (bounds.length) map.fitBounds(bounds, { padding: [35, 35], maxZoom: 7 });
+      setTimeout(() => { if (!cancelled) map.invalidateSize(); }, 100);
+    }).catch(err => { if (!cancelled) setMapError(err.message); });
+    return () => { cancelled = true; if (map) map.remove(); };
+  }, [locations]);
+  return <div className="va-map-wrap">
+    <div ref={containerRef} className="va-map" role="img" aria-label="Map showing approximate visitor locations" />
+    {mapError && <p className="va-map-message">{mapError}. Check your internet connection.</p>}
+    {!locations.length && <p className="va-map-message">No mapped locations yet. Geolocation coordinates will appear for new public-IP visits.</p>}
+  </div>;
+}
+
 export default function VisitorAnalytics({ token }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -138,6 +203,30 @@ export default function VisitorAnalytics({ token }) {
     `${row.ip_address} ${place(row)}`.toLowerCase().includes(search.trim().toLowerCase())
   ), [ipHistory, search]);
   const selectedVisits = useMemo(() => (data?.recent || []).filter(row => row.ip_address === selectedIp), [data, selectedIp]);
+  // Count recorded page views by country. These are not unique-person percentages.
+  const countryLocations = useMemo(() => {
+    const groups = new Map();
+    for (const row of ipHistory) {
+      const country = String(row.country || "").trim() || "Unknown location";
+      groups.set(country, (groups.get(country) || 0) + Number(row.views || 0));
+    }
+    const total = [...groups.values()].reduce((sum, count) => sum + count, 0);
+    return [...groups].map(([country, views]) => ({
+      country, views, percent: total ? (views / total) * 100 : 0,
+    })).sort((a, b) => b.views - a.views);
+  }, [ipHistory]);
+  const mappedLocations = useMemo(() => {
+    const groups = new Map();
+    for (const row of ipHistory) {
+      const lat = Number(row.latitude), lon = Number(row.longitude);
+      if (row.latitude == null || row.longitude == null || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+      const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+      if (!groups.has(key)) groups.set(key, { latitude: lat, longitude: lon, label: place(row), views: 0 });
+      groups.get(key).views += Number(row.views || 0);
+    }
+    return [...groups.values()];
+  }, [ipHistory]);
+
   const metrics = [
     { label: "Visitors today", value: data?.summary?.visitors_today, icon: "◉" },
     { label: "Page views today", value: data?.summary?.views_today, icon: "▤" },
@@ -201,10 +290,23 @@ export default function VisitorAnalytics({ token }) {
         </div>}
       </div>
 
-      <div className="va-panel">
-        <div className="va-panel-header"><div><h3>Recent visits</h3><p className="va-hint">Latest recorded website activity · Last 7 days</p></div><span className="va-pill">{number(data.recent?.length)} records</span></div>
-        <DataTable minWidth={740} headings={["Time (EAT)", "IP address", "Location", "Page"]} empty="No recent visits recorded yet."
-          rows={(data.recent || []).map(v => <tr key={v.id}><td>{eatTime(v.visited_at)}</td><td><span className="va-ip">{v.ip_address}</span></td><td><span className="va-place">{place(v)}</span></td><td><span className="va-page">{v.page_path}</span></td></tr>)} />
+      <div className="va-grid-two va-location-grid">
+        <div className="va-panel">
+          <div className="va-panel-header"><div><h3>Visitor locations</h3><p className="va-hint">Share of recorded page views by country · Last 30 days</p></div><span className="va-pill">Countries</span></div>
+          <div className="va-country-list">
+            {countryLocations.map(item => <div className="va-country" key={item.country}>
+              <div className="va-country-label"><span>{item.country}</span><strong>{item.percent.toFixed(1)}%</strong></div>
+              <div className="va-country-track"><div className="va-country-fill" style={{ width: `${item.percent}%` }} /></div>
+              <span className="va-country-views">{number(item.views)} page views</span>
+            </div>)}
+            {!countryLocations.length && <p className="va-hint">No visitor location data recorded yet.</p>}
+          </div>
+        </div>
+        <div className="va-panel">
+          <div className="va-panel-header"><div><h3>Visitor location map</h3><p className="va-hint">Approximate IP geolocation · Last 30 days</p></div><span className="va-pill">{number(mappedLocations.length)} mapped locations</span></div>
+          <VisitorMap locations={mappedLocations} />
+          <p className="va-privacy va-map-note">Map markers represent approximate network locations, not exact visitor addresses. Zoom and select a marker for details.</p>
+        </div>
       </div>
       <p className="va-footer">Visitor statistics are estimates · IP data is sensitive and should remain accessible only to authorised administrators · Retention depends on backend cleanup settings</p>
     </>}

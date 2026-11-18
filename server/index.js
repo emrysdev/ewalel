@@ -9,6 +9,7 @@ import sharp from "sharp";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import net from "node:net";
 import {
   fileURLToPath
 } from "node:url";
@@ -3238,28 +3239,32 @@ function visitorIp(req) {
 // Geolocation is approximate and may identify a network gateway or VPN.
 const geoCache = new Map();
 function isPublicIp(ip) {
-  if (ip === "::1" || ip === "localhost" || !ip) return false;
-  if (/^(10|127|0|169\.254|192\.168)\./.test(ip)) return false;
-  const parts = ip.split(".");
-  if (parts.length === 4) {
-    if (!parts.every(p => /^\d{1,3}$/.test(p) && Number(p) <= 255)) return false;
-    const [a, b] = parts.map(Number);
-    if (a >= 224 || a === 0 || a === 10 || a === 127 ||
-        (a === 100 && b >= 64 && b <= 127) ||
-        (a === 172 && b >= 16 && b <= 31) ||
-        (a === 192 && (b === 168 || b === 0)) ||
-        (a === 198 && (b === 18 || b === 19)) ||
-        (a === 169 && b === 254)) return false;
-    return true;
-  }
-  // Skip IPv6 geolocation for now; do not send non-public or ambiguous IPv6 addresses.
-  return false;
+  if (net.isIP(ip) !== 4) return false;
+  const [a, b, c] = ip.split(".").map(Number);
+  return !(
+    a === 0 || a === 10 || a === 127 || a >= 224 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && (b === 0 || b === 168 || (b === 88 && c === 99))) ||
+    (a === 198 && (b === 18 || b === 19 || (b === 51 && c === 100))) ||
+    (a === 203 && b === 0 && c === 113) ||
+    (a === 192 && b === 0 && c === 2) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113)
+  );
 }
+function geoNumber(value, lower, upper) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= lower && n <= upper ? n : null;
+}
+
 async function lookupVisitorLocation(ip) {
-  if (!isPublicIp(ip)) return { country: null, region: null, city: null };
+  if (!isPublicIp(ip)) return { country: null, region: null, city: null, latitude: null, longitude: null };
   const cached = geoCache.get(ip);
   if (cached && cached.expires > Date.now()) return cached.value;
-  let value = { country: null, region: null, city: null };
+  let value = { country: null, region: null, city: null, latitude: null, longitude: null };
   try {
     const response = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`, {
       signal: AbortSignal.timeout(3500),
@@ -3272,7 +3277,9 @@ async function lookupVisitorLocation(ip) {
         value = {
           country: clean(result.country, 100),
           region: clean(result.region, 100),
-          city: clean(result.city, 100)
+          city: clean(result.city, 100),
+          latitude: geoNumber(result.latitude, -90, 90),
+          longitude: geoNumber(result.longitude, -180, 180)
         };
       }
     }
@@ -3280,7 +3287,7 @@ async function lookupVisitorLocation(ip) {
     console.warn("Visitor geolocation unavailable:", err.message);
   }
   if (geoCache.size > 1000) geoCache.clear();
-  geoCache.set(ip, { value, expires: Date.now() + (value.country ? 86400000 : 3600000) });
+  geoCache.set(ip, { value, expires: Date.now() + (value.country && value.latitude != null && value.longitude != null ? 86400000 : 15 * 60000) });
   return value;
 }
 
@@ -3291,14 +3298,26 @@ app.post("/api/visits", visitLimiter, asyncRoute(async (req, res) => {
     return res.status(400).json({ error: "Invalid visit" });
   }
   const ip = visitorIp(req);
-  const geo = await lookupVisitorLocation(ip);
+  // Reuse valid previously stored geography for this IP when the provider is unavailable.
+  const existingGeo = await query(`SELECT country, region, city, latitude, longitude
+    FROM website_visits WHERE ip_address = ? AND country IS NOT NULL
+    ORDER BY visited_at DESC LIMIT 1`, [ip]);
+  const saved = existingGeo[0] || {};
+  const lookedUp = await lookupVisitorLocation(ip);
+  const geo = {
+    country: lookedUp.country || saved.country || null,
+    region: lookedUp.region || saved.region || null,
+    city: lookedUp.city || saved.city || null,
+    latitude: lookedUp.latitude ?? saved.latitude ?? null,
+    longitude: lookedUp.longitude ?? saved.longitude ?? null
+  };
   await query(`INSERT INTO website_visits
-    (visitor_id, ip_address, page_path, referrer, user_agent, country, region, city)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+    (visitor_id, ip_address, page_path, referrer, user_agent, country, region, city, latitude, longitude)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
     visitorId, ip, page,
     String(req.body?.referrer || "").slice(0, 500),
     String(req.headers["user-agent"] || "").slice(0, 500),
-    geo.country, geo.region, geo.city
+    geo.country, geo.region, geo.city, geo.latitude, geo.longitude
   ]);
   res.status(204).end();
 }));
@@ -3308,16 +3327,32 @@ app.post("/api/visits", visitLimiter, asyncRoute(async (req, res) => {
 app.post("/api/admin/visitors/backfill-locations", auth, asyncRoute(async (req, res) => {
   const rows = await query(`SELECT DISTINCT ip_address FROM website_visits
     WHERE visited_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY
-      AND country IS NULL AND ip_address IS NOT NULL LIMIT 50`);
+      AND (country IS NULL OR latitude IS NULL OR longitude IS NULL)
+      AND ip_address IS NOT NULL LIMIT 50`);
   let updated = 0, unresolved = 0;
   for (const row of rows) {
-    const geo = await lookupVisitorLocation(String(row.ip_address));
-    if (!geo.country) { unresolved++; continue; }
+    const ip = String(row.ip_address);
+    const previous = await query(`SELECT country, region, city, latitude, longitude
+      FROM website_visits WHERE ip_address = ? AND country IS NOT NULL
+      ORDER BY visited_at DESC LIMIT 1`, [ip]);
+    const saved = previous[0] || {};
+    const fresh = await lookupVisitorLocation(ip);
+    const geo = {
+      country: fresh.country || saved.country || null,
+      region: fresh.region || saved.region || null,
+      city: fresh.city || saved.city || null,
+      latitude: fresh.latitude ?? saved.latitude ?? null,
+      longitude: fresh.longitude ?? saved.longitude ?? null
+    };
+    if (!geo.country && geo.latitude == null) { unresolved++; continue; }
     const result = await query(`UPDATE website_visits
-      SET country = ?, region = ?, city = ?
-      WHERE ip_address = ? AND country IS NULL
-        AND visited_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY`,
-      [geo.country, geo.region, geo.city, row.ip_address]);
+      SET country = COALESCE(NULLIF(country, ''), ?),
+          region = COALESCE(NULLIF(region, ''), ?),
+          city = COALESCE(NULLIF(city, ''), ?),
+          latitude = COALESCE(latitude, ?), longitude = COALESCE(longitude, ?)
+      WHERE ip_address = ? AND visited_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY
+        AND (country IS NULL OR region IS NULL OR city IS NULL OR latitude IS NULL OR longitude IS NULL)`,
+      [geo.country, geo.region, geo.city, geo.latitude, geo.longitude, ip]);
     updated += Number(result.affectedRows || 0);
   }
   res.json({ ok: true, ips_checked: rows.length, visits_updated: updated, ips_unresolved: unresolved });
@@ -3356,7 +3391,9 @@ app.get("/api/admin/visitors", auth, asyncRoute(async (req, res) => {
       DATE_FORMAT(MAX(visited_at), '%Y-%m-%d %H:%i:%s') AS last_visit,
       SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(country, '') ORDER BY visited_at DESC SEPARATOR '|'), '|', 1) AS country,
       SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(region, '') ORDER BY visited_at DESC SEPARATOR '|'), '|', 1) AS region,
-      SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(city, '') ORDER BY visited_at DESC SEPARATOR '|'), '|', 1) AS city
+      SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(city, '') ORDER BY visited_at DESC SEPARATOR '|'), '|', 1) AS city,
+      SUBSTRING_INDEX(GROUP_CONCAT(latitude ORDER BY visited_at DESC SEPARATOR '|'), '|', 1) AS latitude,
+      SUBSTRING_INDEX(GROUP_CONCAT(longitude ORDER BY visited_at DESC SEPARATOR '|'), '|', 1) AS longitude
       FROM website_visits WHERE visited_at >= ?
       GROUP BY ip_address ORDER BY views DESC, last_visit DESC LIMIT 500`, [month])
   ]);
