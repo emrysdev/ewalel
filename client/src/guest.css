@@ -1508,3 +1508,316 @@ body {
 .ew-cottage-gallery-trigger > img {
   display: block;
 }
+
+
+/* Ewalel three-step booking flow — append to existing guest.css */
+.ew-booking-steps { border: 1px solid #e2e1df; border-radius: 18px; padding: 20px; margin-top: 24px; }
+.ew-booking-progress { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; padding-bottom: 22px; border-bottom: 1px solid #e8e8e8; margin-bottom: 24px; }
+.ew-booking-progress-item { display: flex; align-items: center; flex-direction: column; gap: 5px; color: #666; text-align: center; }
+.ew-booking-progress-item span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #f0f0f0; font-weight: 700; }
+.ew-booking-progress-item.active span, .ew-booking-progress-item.completed span { background: #082b3d; color: #fff; }
+.ew-booking-progress-item small { font-size: 11px; }
+.ew-booking-step-body > h2 { margin-top: 0; }
+.ew-booking-step-body > p { color: #64748b; }
+.ew-booking-step-body > label, .ew-step-extra-guests label { display: grid; gap: 8px; font-weight: 600; margin: 14px 0; }
+.ew-booking-step-body input:not([type="radio"]):not([type="checkbox"]) { width: 100%; box-sizing: border-box; border: 1px solid #d3dbdf; border-radius: 12px; padding: 15px; background: transparent; color: #082b3d; font: inherit; }
+.ew-booking-step-body input:focus-visible { outline: 2px solid #ed91ac; outline-offset: 2px; }
+.ew-step-extra-guests { margin: 24px 0; }
+.ew-step-extra-guests label { padding: 15px; background: #f5faf8; border: 1px solid #d9e7e2; border-radius: 12px; }
+.ew-booking-step-actions { display: flex; gap: 12px; margin-top: 18px; }
+.ew-booking-next { display: inline-flex; justify-content: center; align-items: center; gap: 10px; flex: 1; padding: 13px 20px; border: 0; border-radius: 25px; background: #082b3d; color: white; font-weight: 700; cursor: pointer; }
+.ew-booking-next:disabled { opacity: .5; cursor: not-allowed; }
+.ew-booking-back { border: 1px solid #cdd7dc; border-radius: 25px; padding: 12px 20px; background: transparent; cursor: pointer; }
+.ew-step-policy { border: 1px solid #e7d8d7; background: #fff7f6; border-radius: 12px; padding: 16px; margin-top: 20px; }
+.ew-step-policy h3 { margin-top: 0; }
+.ew-step-policy-accept { display: flex !important; flex-direction: row !important; align-items: flex-start; gap: 10px; margin-top: 18px; }
+.ew-step-policy-accept input { flex-shrink: 0; margin-top: 5px; }
+@media(max-width:600px) { .ew-booking-steps { padding: 14px; } .ew-booking-step-actions { flex-direction: column; } }
+
+
+/* Ewalel three-step booking flow — append to existing guest.css */
+.ew-booking-steps { border: 1px solid #e2e1df; border-radius: 18px; padding: 20px; margin-top: 24px; }
+.ew-booking-progress { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; padding-bottom: 22px; border-bottom: 1px solid #e8e8e8; margin-bottom: 24px; }
+.ew-booking-progress-item { display: flex; align-items: center; flex-direction: column; gap: 5px; color: #666; text-align: center; }
+.ew-booking-progress-item span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #f0f0f0; font-weight: 700; }
+.ew-booking-progress-item.active span, .ew-booking-progress-item.completed span { background: #082b3d; color: #fff; }
+.ew-booking-progress-item small { font-size: 11px; }
+.ew-booking-step-body > h2 { margin-top: 0; }
+.ew-booking-step-body > p { color: #64748b; }
+.ew-booking-step-body > label, .ew-step-extra-guests label { display: grid; gap: 8px; font-weight: 600; margin: 14px 0; }
+.ew-booking-step-body input:not([type="radio"]):not([type="checkbox"]) { width: 100%; box-sizing: border-box; border: 1px solid #d3dbdf; border-radius: 12px; padding: 15px; background: transparent; color: #082b3d; font: inherit; }
+.ew-booking-step-body input:focus-visible { outline: 2px solid #ed91ac; outline-offset: 2px; }
+.ew-step-extra-guests { margin: 24px 0; }
+.ew-step-extra-guests label { padding: 15px; background: #f5faf8; border: 1px solid #d9e7e2; border-radius: 12px; }
+.ew-booking-step-actions { display: flex; gap: 12px; margin-top: 18px; }
+.ew-booking-next { display: inline-flex; justify-content: center; align-items: center; gap: 10px; flex: 1; padding: 13px 20px; border: 0; border-radius: 25px; background: #082b3d; color: white; font-weight: 700; cursor: pointer; }
+.ew-booking-next:disabled { opacity: .5; cursor: not-allowed; }
+.ew-booking-back { border: 1px solid #cdd7dc; border-radius: 25px; padding: 12px 20px; background: transparent; cursor: pointer; }
+.ew-step-policy { border: 1px solid #e7d8d7; background: #fff7f6; border-radius: 12px; padding: 16px; margin-top: 20px; }
+.ew-step-policy h3 { margin-top: 0; }
+.ew-step-policy-accept { display: flex !important; flex-direction: row !important; align-items: flex-start; gap: 10px; margin-top: 18px; }
+.ew-step-policy-accept input { flex-shrink: 0; margin-top: 5px; }
+@media(max-width:600px) { .ew-booking-steps { padding: 14px; } .ew-booking-step-actions { flex-direction: column; } }
+\n/* Two-stage progress indicator */\n.ew-booking-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }\n.ew-booking-step-body > h2:not(:first-child) { margin-top: 30px; }
+
+
+/* Payment method panels — append to guest.css */
+.ew-payment-panel { margin: 18px 0; padding: 20px; border: 1px solid #d7e4e7; border-radius: 14px; background: #f6faf9; }
+.ew-payment-panel h3 { margin: 0 0 12px; color: #082b3d; }
+.ew-payment-panel p { line-height: 1.6; }
+.ew-payment-panel > label { display: grid; gap: 8px; margin-top: 12px; }
+.ew-payment-panel .ew-step-policy-accept { display: flex; }
+
+
+/* M-PESA PayBill details within booking payment step */
+.ew-mpesa-payment-panel .ew-mpesa-payment-detail { margin-top: 16px; }
+.ew-mpesa-payment-detail > span,
+.ew-mpesa-payment-amount > span { display: block; font-size: 13px; font-weight: 700; color: #42616a; }
+.ew-mpesa-payment-panel .ew-copy-field { margin: 6px 0 0; background: #fff; }
+.ew-mpesa-payment-panel .ew-copy-btn { display: inline-flex; align-items: center; gap: 6px; }
+.ew-mpesa-payment-amount { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 0; padding: 14px 16px; background: #e5f4ed; border-radius: 10px; }
+.ew-mpesa-payment-amount strong { font-size: 21px; color: #05283a; }
+.ew-mpesa-instructions { padding-left: 23px; line-height: 1.8; }
+.ew-mpesa-instructions li { padding-left: 3px; }
+@media (max-width: 480px) {
+  .ew-mpesa-payment-panel .ew-copy-field { gap: 8px; }
+  .ew-mpesa-payment-panel .ew-copy-field strong { font-size: 17px; overflow-wrap: anywhere; }
+  .ew-mpesa-payment-panel .ew-copy-btn { padding: 9px 11px; }
+}
+
+
+/* M-PESA receipt popup and concise confirmation */
+.ew-mpesa-receipt-entry { margin: 20px 0 14px; padding: 17px; border: 1px solid #b7d9cd; border-radius: 13px; background: #fff; }
+.ew-mpesa-receipt-entry p { margin: 6px 0 12px; }
+.ew-mpesa-receipt-entry small { display: block; margin-top: 12px; color: #62777a; line-height: 1.5; }
+.ew-receipt-open, .ew-receipt-save { display: inline-flex; align-items: center; justify-content: center; gap: 9px; border: 0; border-radius: 24px; padding: 12px 18px; background: #006e58; color: #fff; font-weight: 700; cursor: pointer; }
+.ew-receipt-open:hover, .ew-receipt-save:hover { background: #005441; }
+.ew-receipt-saved { display: flex; gap: 7px; align-items: center; color: #08634e; overflow-wrap: anywhere; }
+.ew-receipt-modal-backdrop { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(2,24,35,.62); }
+.ew-receipt-modal { position: relative; width: min(100%, 470px); padding: 30px; background: #fffaf5; color: #05283a; border-radius: 20px; box-shadow: 0 24px 70px rgba(0,0,0,.25); }
+.ew-receipt-modal h2 { margin: 12px 0; font-family: 'Playfair Display', serif; font-size: 30px; }
+.ew-receipt-modal p { color: #5e7279; line-height: 1.6; }
+.ew-receipt-modal label { display: block; font-weight: 700; margin: 18px 0 8px; }
+.ew-receipt-modal input, .ew-confirmation-retry input { display: block; width: 100%; padding: 15px; border: 1px solid #c9d8d8; border-radius: 10px; font: inherit; background: #fff; color: #05283a; }
+.ew-receipt-modal input:focus-visible { outline: 3px solid #ffb4b7; }
+.ew-receipt-modal small { display: block; margin: 9px 0 18px; color: #63767b; }
+.ew-receipt-modal .ew-receipt-save { width: 100%; }
+.ew-receipt-close { position: absolute; right: 16px; top: 16px; background: transparent; border: 0; padding: 6px; color: #05283a; }
+.ew-receipt-modal-icon { color: #08745c; }
+.ew-receipt-later { display: block; width: 100%; margin-top: 12px; border: 0; background: transparent; color: #526e77; text-decoration: underline; padding: 10px; }
+.ew-confirmation-payment-status { max-width: 600px; margin: 22px auto; padding: 22px; background: #f1f9f6; border: 1px solid #cce7dd; border-radius: 14px; text-align: center; }
+.ew-confirmation-payment-status > svg { color: #08745c; }
+.ew-confirmation-payment-status h2 { font-size: 22px; margin: 8px 0; }
+.ew-confirmation-retry { display: grid; gap: 10px; text-align: left; }
+@media(max-width: 520px) { .ew-receipt-modal { padding: 24px 18px; } .ew-receipt-open { width: 100%; } }
+
+/* Compact receipt field within the original M-PESA checkout */
+.ew-mpesa-receipt-entry { margin-top: 18px; }
+.ew-mpesa-receipt-entry label { display: flex; flex-direction: column; gap: 9px; font-weight: 600; }
+.ew-mpesa-receipt-entry input { width: 100%; box-sizing: border-box; padding: 14px 16px; border: 1px solid #cfdde0; border-radius: 11px; background: #fff; color: #082b3d; font: inherit; }
+.ew-mpesa-receipt-entry small { display: block; margin-top: 8px; color: #64748b; line-height: 1.5; }
+
+/* Ewalel booking UX enhancements — load after guest.css */
+.ew-booking-page {scroll-margin-top: 95px;}
+.ew-booking-form {max-width: 980px; margin-inline: auto;}
+.ew-ux-section-heading {display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:20px;}
+.ew-ux-section-heading h2 {margin:6px 0 5px;}
+.ew-ux-section-heading p {margin:0;color:#687d8a;font-size:14px;line-height:1.6;}
+.ew-ux-eyebrow {display:block;font-size:11px;font-weight:800;letter-spacing:.17em;color:#b65f72;text-transform:uppercase;}
+.ew-ux-secure {display:inline-flex;align-items:center;gap:7px;white-space:nowrap;background:#eaf6ef;border:1px solid #cde5d9;color:#16674f;padding:9px 12px;border-radius:999px;font-size:12px;font-weight:700;}
+.ew-booking-form input:not([type="radio"]):not([type="checkbox"]),.ew-booking-form select {transition:border-color .16s ease,box-shadow .16s ease;background-color:#fff;}
+.ew-booking-form input:not([type="radio"]):not([type="checkbox"]):focus-visible,.ew-booking-form select:focus-visible {outline:2px solid #0c6470;outline-offset:2px;border-color:#0c6470;}
+.ew-booking-form button:focus-visible {outline:3px solid #0d8b8b;outline-offset:3px;}
+.ew-ux-total {display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid #e5e4df;border-radius:16px;padding:18px 22px;background:#f7f4f0;}
+.ew-ux-total>div {display:flex;flex-direction:column;gap:5px;}
+.ew-ux-total small {font-size:11px;color:#667785;}
+.ew-ux-total small:first-child {font-weight:800;letter-spacing:.12em;color:#a6576c;}
+.ew-ux-total span {font-weight:600;color:#092e40;}
+.ew-ux-total strong {white-space:nowrap;font-size:clamp(19px,3vw,27px);}
+.ew-booking-progress {margin-bottom:20px;}
+.ew-booking-step-body {scroll-margin-top:90px;}
+.ew-ux-next-row {display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:22px;}
+.ew-ux-next-row small {font-size:12px;color:#6d7d84;max-width:320px;line-height:1.5;}
+.ew-ux-hint {font-size:13px;color:#a04a30;margin-top:10px;}
+.ew-booking-next:disabled {cursor:not-allowed;opacity:.52;box-shadow:none;}
+.ew-payment-methods {display:flex;flex-wrap:wrap;gap:12px;}
+.ew-payment-methods .ew-ux-method {display:flex;align-items:center;gap:10px;min-height:62px;padding:13px 16px;border:1px solid #d7e1e4;border-radius:14px;cursor:pointer;background:#fff;transition:background .16s ease,border-color .16s ease,transform .16s ease,box-shadow .16s ease;}
+.ew-payment-methods .ew-ux-method:hover {border-color:#0c6570;transform:translateY(-1px);}
+.ew-payment-methods .ew-ux-method.selected {border-color:#0b5963;background:#edf7f4;box-shadow:0 0 0 1px #0b5963 inset;}
+.ew-payment-methods .ew-ux-method-check {color:#167f66;margin-left:2px;}
+.ew-ux-assurance {display:flex;align-items:flex-start;gap:10px;margin:18px 0 12px;color:#56717a;font-size:12px;line-height:1.6;}
+.ew-ux-assurance svg {flex-shrink:0;color:#148266;margin-top:1px;}
+.ew-mpesa-payment-panel {border-radius:16px;}
+.ew-copy-btn {min-width:74px;}
+@media(max-width:700px){.ew-ux-section-heading {flex-direction:column;}.ew-ux-total {align-items:flex-start;}.ew-ux-total strong {align-self:center;}.ew-payment-methods .ew-ux-method {flex:1 1 150px;}.ew-booking-form .ew-form-grid {grid-template-columns:1fr!important;}.ew-ux-next-row {flex-direction:column;align-items:stretch;}.ew-ux-next-row .ew-booking-next {width:100%;justify-content:center;}}
+@media(prefers-reduced-motion:reduce){.ew-booking-form input,.ew-booking-form select,.ew-payment-methods .ew-ux-method {transition:none;}.ew-payment-methods .ew-ux-method:hover {transform:none;}}
+
+/* Ewalel booking UX enhancements — load after guest.css */
+.ew-booking-page {scroll-margin-top: 95px;}
+.ew-booking-form {max-width: 980px; margin-inline: auto;}
+.ew-ux-section-heading {display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:20px;}
+.ew-ux-section-heading h2 {margin:6px 0 5px;}
+.ew-ux-section-heading p {margin:0;color:#687d8a;font-size:14px;line-height:1.6;}
+.ew-ux-eyebrow {display:block;font-size:11px;font-weight:800;letter-spacing:.17em;color:#b65f72;text-transform:uppercase;}
+.ew-ux-secure {display:inline-flex;align-items:center;gap:7px;white-space:nowrap;background:#eaf6ef;border:1px solid #cde5d9;color:#16674f;padding:9px 12px;border-radius:999px;font-size:12px;font-weight:700;}
+.ew-booking-form input:not([type="radio"]):not([type="checkbox"]),.ew-booking-form select {transition:border-color .16s ease,box-shadow .16s ease;background-color:#fff;}
+.ew-booking-form input:not([type="radio"]):not([type="checkbox"]):focus-visible,.ew-booking-form select:focus-visible {outline:2px solid #0c6470;outline-offset:2px;border-color:#0c6470;}
+.ew-booking-form button:focus-visible {outline:3px solid #0d8b8b;outline-offset:3px;}
+.ew-ux-total {display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid #e5e4df;border-radius:16px;padding:18px 22px;background:#f7f4f0;}
+.ew-ux-total>div {display:flex;flex-direction:column;gap:5px;}
+.ew-ux-total small {font-size:11px;color:#667785;}
+.ew-ux-total small:first-child {font-weight:800;letter-spacing:.12em;color:#a6576c;}
+.ew-ux-total span {font-weight:600;color:#092e40;}
+.ew-ux-total strong {white-space:nowrap;font-size:clamp(19px,3vw,27px);}
+.ew-booking-progress {margin-bottom:20px;}
+.ew-booking-step-body {scroll-margin-top:90px;}
+.ew-ux-next-row {display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:22px;}
+.ew-ux-next-row small {font-size:12px;color:#6d7d84;max-width:320px;line-height:1.5;}
+.ew-ux-hint {font-size:13px;color:#a04a30;margin-top:10px;}
+.ew-booking-next:disabled {cursor:not-allowed;opacity:.52;box-shadow:none;}
+.ew-payment-methods {display:flex;flex-wrap:wrap;gap:12px;}
+.ew-payment-methods .ew-ux-method {display:flex;align-items:center;gap:10px;min-height:62px;padding:13px 16px;border:1px solid #d7e1e4;border-radius:14px;cursor:pointer;background:#fff;transition:background .16s ease,border-color .16s ease,transform .16s ease,box-shadow .16s ease;}
+.ew-payment-methods .ew-ux-method:hover {border-color:#0c6570;transform:translateY(-1px);}
+.ew-payment-methods .ew-ux-method.selected {border-color:#0b5963;background:#edf7f4;box-shadow:0 0 0 1px #0b5963 inset;}
+.ew-payment-methods .ew-ux-method-check {color:#167f66;margin-left:2px;}
+.ew-ux-assurance {display:flex;align-items:flex-start;gap:10px;margin:18px 0 12px;color:#56717a;font-size:12px;line-height:1.6;}
+.ew-ux-assurance svg {flex-shrink:0;color:#148266;margin-top:1px;}
+.ew-mpesa-payment-panel {border-radius:16px;}
+.ew-copy-btn {min-width:74px;}
+@media(max-width:700px){.ew-ux-section-heading {flex-direction:column;}.ew-ux-total {align-items:flex-start;}.ew-ux-total strong {align-self:center;}.ew-payment-methods .ew-ux-method {flex:1 1 150px;}.ew-booking-form .ew-form-grid {grid-template-columns:1fr!important;}.ew-ux-next-row {flex-direction:column;align-items:stretch;}.ew-ux-next-row .ew-booking-next {width:100%;justify-content:center;}}
+@media(prefers-reduced-motion:reduce){.ew-booking-form input,.ew-booking-form select,.ew-payment-methods .ew-ux-method {transition:none;}.ew-payment-methods .ew-ux-method:hover {transform:none;}}
+
+/* Payment choice is now part of guest information. */
+.ew-ux-payment-choice { margin: 24px 0 18px; padding-top: 18px; border-top: 1px solid #e5dfd9; }
+.ew-ux-payment-choice h2 { margin-bottom: 10px; }
+.ew-ux-payment-choice .ew-payment-methods { margin: 16px 0; display: flex; flex-wrap: wrap; gap: 12px; }
+.ew-ux-change-method { display: inline; padding: 0; border: 0; background: none; color: #006f64; text-decoration: underline; font: inherit; cursor: pointer; }
+.ew-ux-change-method:focus-visible { outline: 2px solid #006f64; outline-offset: 3px; }
+
+/* Ewalel booking calendar: append to the end of client/src/guest.css */
+.ew-calendar-intro { display:flex; flex-direction:column; gap:5px; margin-bottom:12px; }
+.ew-calendar-intro small { color:#64748b; font-size:13px; line-height:1.5; }
+.ew-calendar-selected-dates { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:18px; }
+.ew-calendar-selected-dates > div { display:flex; flex-direction:column; gap:5px; padding:14px 16px; border:1px solid #d7e1dd; border-radius:12px; background:#f1f7f4; }
+.ew-calendar-selected-dates small { color:#64748b; font-size:12px; }
+.ew-calendar-selected-dates strong { color:#0a3440; font-size:15px; }
+.ew-calendar-time-section { margin-top:12px; }
+.ew-calendar-time-section h3 { margin:0 0 7px; color:#082e3b; font-size:19px; }
+.ew-calendar-time-section > .ew-note { margin:0 0 14px; }
+.ew-calendar-time-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.ew-calendar-time-grid > label { min-width:0; display:flex; flex-direction:column; gap:8px; }
+.ew-calendar-time-grid .ew-time-select { min-width:0; }
+.ew-calendar-time-grid .ew-time-select select { min-width:0; }
+@media (max-width:620px) { .ew-calendar-time-grid { grid-template-columns:1fr; } .ew-calendar-selected-dates { gap:8px; } .ew-calendar-selected-dates > div { padding:12px 10px; } }
+
+
+/* Booking calendar redesign — future-date navigation and responsive layout */
+.ew-booking-form .ew-calendar-redesign {
+  width: 100%;
+  padding: 24px;
+  border: 1px solid #e9d9cf;
+  border-radius: 20px;
+  background: #fffdfb;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ew-calendar-redesign .ew-calendar-intro { margin: 0 0 2px; }
+.ew-calendar-redesign .ew-calendar-heading { font-size: 20px; color: #092f40; }
+.ew-calendar-jump-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.ew-calendar-jump-grid label { display:flex; flex-direction:column; gap:6px; color:#52636c; font-size:13px; font-weight:700; }
+.ew-booking-form .ew-calendar-jump-grid select {
+  width:100%; min-width:0; padding:12px 14px; border:1px solid #d5d9d8;
+  border-radius:999px; background:#fff; color:#173544; font-size:14px;
+}
+.ew-calendar-redesign .ew-calendar-month { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.ew-calendar-redesign .ew-calendar-month strong { font-size:16px; font-weight:800; }
+.ew-calendar-redesign .ew-calendar-month button {
+  display:grid; place-items:center; width:38px; height:38px;
+  border:1px solid #d9dfde; border-radius:50%; background:#fff; padding:0;
+}
+.ew-calendar-shortcuts { display:flex; gap:7px; flex-wrap:wrap; }
+.ew-calendar-shortcuts button {
+  border:1px solid #d8dedc; border-radius:999px; background:#fff;
+  color:#53636c; padding:6px 12px; font-size:12px; font-weight:700;
+}
+.ew-calendar-shortcuts button:hover { background:#edf6f2; border-color:#85b6a9; }
+.ew-calendar-redesign .ew-calendar-days { gap:5px; }
+.ew-calendar-redesign .ew-calendar-weekday { color:#6b7881; font-size:12px; text-align:center; padding:4px 0; }
+.ew-booking-form .ew-calendar-redesign .ew-calendar-day {
+  min-width:0; height:39px; border:1px solid #bfdad4; border-radius:8px;
+  background:#edf7f3; color:#0a3440; font-weight:500; font-size:13px; padding:0;
+}
+.ew-booking-form .ew-calendar-redesign .ew-calendar-day.ew-date-booking { background:#f4b9b5; border-color:#e9a39f; }
+.ew-booking-form .ew-calendar-redesign .ew-calendar-day.ew-date-maintenance { background:#f2d397; border-color:#e4c47f; }
+.ew-booking-form .ew-calendar-redesign .ew-calendar-day.ew-date-within { background:#c8e9dc; }
+.ew-booking-form .ew-calendar-redesign .ew-calendar-day.ew-date-selected { background:#15565b; border:2px solid #0d3439; color:white; font-weight:800; }
+.ew-booking-form .ew-calendar-redesign .ew-calendar-day:disabled { opacity:.45; cursor:not-allowed; }
+.ew-calendar-legend { display:flex; gap:12px; flex-wrap:wrap; font-size:11px; color:#546772; }
+.ew-calendar-legend span { display:inline-flex; align-items:center; gap:5px; }
+.ew-calendar-legend i { display:inline-block; width:11px; height:11px; border-radius:3px; border:1px solid #c8d8d2; }
+.ew-legend-available { background:#edf7f3; }
+.ew-legend-booked { background:#f4b9b5; }
+.ew-legend-maintenance { background:#f2d397; }
+.ew-legend-selected { background:#15565b; }
+.ew-calendar-redesign .ew-calendar-selected-dates { margin-top:2px; }
+.ew-calendar-redesign .ew-calendar-selected-dates > div { background:#f6f1eb; border:0; }
+.ew-calendar-footnote { color:#667985; }
+.ew-calendar-alert { color:#a32a2a; }
+.ew-calendar-feedback { color:#336a65; }
+.ew-booking-cottage-preview { grid-column:1/-1; padding:18px; border:1px solid #e8e5e1; border-radius:16px; background:#fff; }
+.ew-booking-preview-title { display:flex; align-items:center; gap:9px; font-weight:800; margin-bottom:13px; }
+.ew-booking-preview-content { display:flex; align-items:center; gap:14px; }
+.ew-booking-preview-content img { width:112px; height:94px; object-fit:cover; border-radius:12px; flex-shrink:0; }
+.ew-booking-preview-content > div { display:flex; flex-direction:column; gap:5px; }
+.ew-booking-preview-content strong { font-size:17px; }
+.ew-booking-preview-content small { color:#687780; }
+.ew-booking-preview-content span { font-weight:700; }
+@media(max-width:620px) {
+  .ew-booking-form .ew-calendar-redesign { padding:14px 10px; }
+  .ew-calendar-jump-grid { gap:8px; }
+  .ew-calendar-shortcuts button { padding:6px 9px; }
+  .ew-booking-form .ew-calendar-redesign .ew-calendar-day { height:35px; font-size:12px; }
+  .ew-booking-preview-content img { width:86px; height:80px; }
+}
+
+/* Compact single-dropdown arrival and departure time controls */
+.ew-booking-form .ew-calendar-time-grid .ew-time-select.ew-time-single {
+  display: block;
+  width: 100%;
+}
+.ew-booking-form .ew-calendar-time-grid .ew-time-single select,
+.ew-booking-form .ew-calendar-time-grid .ew-time-single select:last-child {
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 16px;
+  border: 1px solid #d7d9d8;
+  border-radius: 999px;
+  background: #fff;
+  color: #0a3440;
+  font-size: 15px;
+  font-weight: 600;
+  appearance: auto;
+}
+.ew-booking-form .ew-calendar-time-grid .ew-time-single select:focus-visible {
+  outline: 2px solid #15565b;
+  outline-offset: 2px;
+}
+
+/* Ewalel secure card checkout — scoped to the card payment panel */
+.ew-card-checkout { background: #f5faf9; border: 1px solid #d3e5e5; border-radius: 16px; padding: 24px; }
+.ew-card-checkout-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.ew-card-checkout-heading h3 { margin: 0 0 4px; font-size: 20px; }
+.ew-card-checkout-heading p { margin: 0; color: #667b83; font-size: 13px; }
+.ew-card-checkout-heading > svg:last-child { margin-left: auto; color: #15826f; }
+.ew-card-checkout-icon { background: #e0f1ee; color: #075a58; border-radius: 12px; padding: 12px; display: flex; }
+.ew-card-amount { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 17px; background: #e4f3ed; border-radius: 11px; margin-bottom: 20px; }
+.ew-card-amount strong { font-size: 22px; color: #05283a; }
+.ew-card-checkout-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+.ew-card-checkout-grid label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; font-weight: 700; }
+.ew-card-checkout-grid input { width: 100%; padding: 14px; border: 1px solid #cedbdc; border-radius: 10px; background: white; color: #05283a; }
+.ew-card-checkout-grid input:focus-visible { outline: 2px solid #128576; outline-offset: 2px; }
+.ew-card-secure-notice { display: flex; gap: 10px; align-items: flex-start; color: #425c65; background: white; padding: 14px; border: 1px solid #dce8e7; border-radius: 10px; margin-top: 16px; font-size: 13px; line-height: 1.55; }
+.ew-card-secure-notice svg { flex-shrink: 0; color: #087563; }
+.ew-card-gateway-placeholder { display: flex; align-items: center; justify-content: center; gap: 10px; background: #e9efef; color: #415b62; padding: 15px; border-radius: 999px; margin: 18px 0; font-size: 13px; font-weight: 700; text-align: center; }
+@media(max-width: 600px) { .ew-card-checkout { padding: 16px; } .ew-card-checkout-grid { grid-template-columns: 1fr; } .ew-card-amount strong { font-size: 18px; } }
