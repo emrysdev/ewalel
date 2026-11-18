@@ -1,0 +1,76 @@
+/* Ewalel Cottages — Visitor Analytics. Complete replacement stylesheet. */
+.visitor-analytics{--va-dark:#0a3439;--va-green:#176456;--va-gold:#e5b76a;--va-ink:#163b36;--va-muted:#607b74;--va-line:#e0eae5;box-sizing:border-box;width:100%;min-width:0;margin:20px 0;padding:clamp(16px,2.4vw,30px);background:#fff;border:1px solid var(--va-line);border-radius:22px;color:var(--va-ink);box-shadow:0 10px 28px rgba(9,51,45,.045);font-family:inherit}
+.visitor-analytics *{box-sizing:border-box}
+.visitor-analytics .va-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:30px 32px;margin-bottom:24px;border-radius:18px;background:linear-gradient(110deg,#092f38 0%,#105148 60%,#267768 100%);color:#fff;box-shadow:0 10px 24px rgba(7,53,49,.12)}
+.visitor-analytics .va-hero-copy{flex:1;min-width:220px}
+.visitor-analytics .va-hero .va-eyebrow{display:flex;align-items:center;gap:9px;margin:0 0 10px;color:var(--va-gold)!important;font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}
+.visitor-analytics .va-eyebrow:before{content:"";width:7px;height:7px;flex:none;border-radius:50%;background:var(--va-gold)}
+.visitor-analytics .va-hero h2{margin:0 0 10px!important;color:#fff!important;font-size:clamp(26px,3vw,36px)!important;font-weight:800!important;line-height:1.2!important;letter-spacing:-.03em;opacity:1!important;text-shadow:none!important}
+.visitor-analytics .va-hero .va-subtitle{max-width:740px;margin:0!important;color:#e0f1eb!important;font-size:13px;line-height:1.7;opacity:1!important}
+.visitor-analytics .va-live{display:inline-flex;align-items:center;gap:9px;white-space:nowrap;background:#f3fbf7;color:#17624b;border:1px solid #d7eee3;border-radius:100px;padding:10px 14px;font-size:12px;font-weight:800}
+.visitor-analytics .va-live-dot{display:inline-block;width:9px;height:9px;background:#32b77c;border-radius:50%;box-shadow:0 0 0 4px #d8f2e5}
+.visitor-analytics .visitor-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px;margin:0 0 24px}
+.visitor-analytics .visitor-metrics article{display:flex;flex-direction:column;justify-content:space-between;gap:12px;min-width:0;min-height:148px;padding:20px;border:1px solid #e0eae5;border-radius:17px;background:#f7faf8;box-shadow:0 3px 12px rgba(17,64,54,.025);position:relative;overflow:hidden}
+.visitor-analytics .visitor-metrics article:before{content:"";position:absolute;inset:0 0 auto;height:4px;background:linear-gradient(90deg,#caa05d,#eed5a7)}
+.visitor-analytics .visitor-metrics article:nth-child(2):before{background:linear-gradient(90deg,#27896e,#a7d8bf)}
+.visitor-analytics .visitor-metrics article:nth-child(3):before{background:linear-gradient(90deg,#477d71,#b1d7cc)}
+.visitor-analytics .visitor-metrics article:nth-child(4):before{background:linear-gradient(90deg,#b99660,#e9d4a6)}
+.visitor-analytics .va-metric-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.visitor-analytics .va-metric-top>span:first-child{font-size:13px;color:#56746a;font-weight:700}
+.visitor-analytics .va-metric-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#e8f3ed;color:#226c58;font-size:20px}
+.visitor-analytics .visitor-metrics strong{font-size:clamp(29px,3vw,41px);line-height:1;color:#103d35;font-weight:850;letter-spacing:-.04em}
+.visitor-analytics .va-metric-caption{font-size:11px;color:#7d928a}
+.visitor-analytics .va-grid-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.visitor-analytics .va-panel{min-width:0;padding:clamp(16px,2vw,24px);margin-bottom:20px;background:#fff;border:1px solid var(--va-line);border-radius:18px;box-shadow:0 4px 20px rgba(13,60,49,.035)}
+.visitor-analytics .va-panel-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px}
+.visitor-analytics .va-panel h3{margin:0!important;color:#143d35!important;font-size:18px!important;font-weight:800!important;line-height:1.3}
+.visitor-analytics .va-hint{margin:5px 0 0;color:#748b83;font-size:12px;line-height:1.5}
+.visitor-analytics .va-pill{display:inline-flex;align-items:center;white-space:nowrap;border-radius:99px;padding:7px 12px;background:#eff5ef;color:#46715b;font-size:11px;font-weight:800}
+.visitor-analytics .va-table-scroll{width:100%;overflow-x:auto;border:1px solid #e5ece8;border-radius:12px}
+.visitor-analytics table{width:100%;border-collapse:collapse;margin:0!important;text-align:left;font-size:13px}
+.visitor-analytics th{padding:14px 15px!important;background:#f2f7f4!important;color:#4f6e62!important;text-transform:uppercase;font-size:11px!important;letter-spacing:.055em;font-weight:800!important;white-space:nowrap;border-bottom:1px solid #e5ede8}
+.visitor-analytics td{padding:14px 15px!important;border-bottom:1px solid #eaf0ec!important;color:#31584e!important;font-size:13px!important;vertical-align:middle}
+.visitor-analytics tbody tr:last-child td{border-bottom:0!important}
+.visitor-analytics tbody tr:hover{background:#f8fbf9}
+.visitor-analytics .va-strong{font-weight:800;color:#124839!important}
+.visitor-analytics .va-page{display:inline-block;padding:5px 9px;border:1px solid #e0ebe5;border-radius:7px;background:#f3f8f5;color:#20634e;font-family:Consolas,monospace;font-size:12px;overflow-wrap:anywhere}
+.visitor-analytics .va-ip{color:#155b4a;font-family:Consolas,monospace;font-size:12px;font-weight:800}
+.visitor-analytics .va-place{display:inline-block;padding:6px 10px;background:#f0f6f2;border-radius:99px;color:#466e5d;font-size:12px;white-space:nowrap}
+.visitor-analytics .va-privacy{margin:0 0 14px;color:#6a8078;font-size:12px;line-height:1.6}
+.visitor-analytics .va-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:18px 0}
+.visitor-analytics .va-search{display:flex;align-items:center;gap:10px;flex:1;max-width:490px;min-width:220px;padding:0 13px;background:#fff;border:1px solid #d9e5de;border-radius:11px;min-height:44px;color:#7e998b}
+.visitor-analytics .va-search:focus-within{border-color:#bda06c;box-shadow:0 0 0 3px rgba(189,160,108,.16)}
+.visitor-analytics .va-search>span{font-size:22px;line-height:1}
+.visitor-analytics .va-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;color:#173f36;font:inherit;font-size:13px}
+.visitor-analytics .va-search input::placeholder{color:#8a9b93}
+.visitor-analytics .va-button{display:inline-flex;align-items:center;justify-content:center;min-height:39px;padding:9px 14px;border:1px solid #d8e7dc;border-radius:9px;background:#fff;color:#195742;font:inherit;font-size:12px;font-weight:800;cursor:pointer;transition:background .15s,transform .15s}
+.visitor-analytics .va-button:hover:not(:disabled){background:#eaf4ed;transform:translateY(-1px)}
+.visitor-analytics .va-button-primary{background:#155b4b;border-color:#155b4b;color:#fff}
+.visitor-analytics .va-button-primary:hover:not(:disabled){background:#0c463a;color:#fff}
+.visitor-analytics .va-button:disabled{opacity:.5;cursor:not-allowed}
+.visitor-analytics .va-empty{text-align:center!important;color:#789086!important;padding:28px 16px!important}
+.visitor-analytics .va-history-detail{margin-top:17px;padding:18px;background:#f8fbf9;border:1px solid #e1ebe5;border-radius:14px}
+.visitor-analytics .va-error{padding:14px 16px;margin-bottom:16px;background:#fff2f2;color:#8d2929;border:1px solid #f0cccc;border-radius:12px}
+.visitor-analytics .va-error button{margin-left:10px;padding:5px 12px;border:1px solid #dbaaaa;border-radius:7px;background:#fff;cursor:pointer}
+.visitor-analytics .va-loading{padding:18px;color:#526d60}
+.visitor-analytics .va-footer{margin:4px 0 0;color:#81958b;font-size:11px;line-height:1.6;text-align:right}
+@media(max-width:1100px){.visitor-analytics .visitor-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.visitor-analytics .va-grid-two{grid-template-columns:1fr}}
+@media(max-width:600px){.visitor-analytics{padding:14px;border-radius:15px}.visitor-analytics .va-hero{padding:23px 20px;border-radius:14px}.visitor-analytics .va-hero h2{font-size:27px!important}.visitor-analytics .visitor-metrics{gap:10px}.visitor-analytics .visitor-metrics article{min-height:135px;padding:15px}.visitor-analytics .va-metric-icon{width:28px;height:28px}.visitor-analytics .va-metric-top>span:first-child{font-size:11px}.visitor-analytics .va-toolbar{align-items:stretch}.visitor-analytics .va-search{max-width:none;min-width:0;width:100%}.visitor-analytics .va-button-primary{width:100%}.visitor-analytics .va-panel{padding:15px}}
+
+/* Typography alignment with the existing Ewalel administration dashboard. */
+.visitor-analytics { font-family: inherit !important; font-size: inherit; line-height: inherit; }
+.visitor-analytics .va-hero h2 { font-family: inherit !important; font-size: 22px !important; font-weight: 750 !important; letter-spacing: normal !important; }
+.visitor-analytics .va-panel h3 { font-family: inherit !important; font-size: 17px !important; font-weight: 750 !important; letter-spacing: normal !important; }
+.visitor-analytics .va-hero .va-subtitle,
+.visitor-analytics .va-hint,
+.visitor-analytics .va-privacy,
+.visitor-analytics .va-search input,
+.visitor-analytics .va-button,
+.visitor-analytics td { font-family: inherit !important; font-size: 13px !important; }
+.visitor-analytics .visitor-metrics strong { font-family: inherit !important; font-size: 26px !important; font-weight: 750 !important; letter-spacing: normal !important; }
+.visitor-analytics .va-metric-top>span:first-child { font-size: 12px !important; }
+.visitor-analytics .va-page,
+.visitor-analytics .va-ip { font-family: inherit !important; font-size: 13px !important; }
+.visitor-analytics .va-hero .va-eyebrow,
+.visitor-analytics th { font-family: inherit !important; font-size: 11px !important; }
+@media (max-width:600px) { .visitor-analytics .va-hero h2 { font-size: 21px !important; } }

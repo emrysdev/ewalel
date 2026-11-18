@@ -37,6 +37,7 @@ import AnalyticsDashboard from "./components/AnalyticsDashboard.jsx";
 import FacilitiesPanel from "./components/FacilitiesPanel.jsx";
 import ReportsSuite from "./components/ReportsSuite.jsx";
 import Guest from "./Guest.jsx";
+import VisitorAnalytics, { VisitTracker } from "./components/VisitorAnalytics.jsx";
 import CottageManagement from "./components/CottageManagement.jsx";
 import ManualGuestRegistration from "./components/ManualGuestRegistration.jsx";
 
@@ -1360,13 +1361,25 @@ function App() {
               )}
             </>
 
+          ) : tab === "Reports & Analytics" ? (
+            <>
+              <ReportsSuite
+                bookings={bookings}
+                payments={payments}
+                cottages={cottages}
+                maintenance={records}
+                finance={finance}
+                token={token}
+              />
+              <VisitorAnalytics token={token} />
+            </>
           ) : tab === "Settings" ? (
             <section className="panel">
               <h1>Settings</h1>
               <p>Administrator configuration is managed through your existing backend and Railway environment variables. No credentials are displayed here.</p>
             </section>
           ) : (
-            <ReportsSuite bookings={bookings} payments={payments} cottages={cottages} maintenance={records} />
+            <></>
           )}
         </main>
       </div>
@@ -2642,6 +2655,6 @@ createRoot(
 ).render(
   window.location.pathname.startsWith("/admin")
     ? <App />
-    : <Guest />
+    : <><VisitTracker /><Guest /></>
 );
 

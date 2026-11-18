@@ -1,0 +1,148 @@
+.ew-visitors {
+    color: #163d30;
+    display: grid;
+    gap: 18px
+}
+
+.ew-visitors-heading h1 {
+    margin: 0;
+    font-size: 27px
+}
+
+.ew-visitors-heading p {
+    margin: 7px 0;
+    color: #526c60
+}
+
+.ew-visitors-stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px
+}
+
+.ew-visitors-stats article {
+    background: #fff;
+    border: 1px solid #d8e4da;
+    border-radius: 16px;
+    padding: 20px;
+    display: grid;
+    gap: 10px
+}
+
+.ew-visitors-stats small {
+    color: #4e675b
+}
+
+.ew-visitors-stats strong {
+    font-size: 29px;
+    color: #123f2c
+}
+
+.ew-visitors-controls {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: end
+}
+
+.ew-visitors-controls label {
+    display: grid;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 700
+}
+
+.ew-visitors-controls select,
+.ew-visitors-controls input {
+    padding: 11px;
+    border: 1px solid #b7cdbf;
+    border-radius: 9px;
+    background: white;
+    color: #163d30;
+    min-width: 160px
+}
+
+.ew-visitors-scroll {
+    overflow-x: auto;
+    background: #fff;
+    border: 1px solid #d8e4da;
+    border-radius: 14px
+}
+
+.ew-visitors table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    white-space: nowrap
+}
+
+.ew-visitors th,
+.ew-visitors td {
+    padding: 13px 12px;
+    text-align: left;
+    border-bottom: 1px solid #e8eee9
+}
+
+.ew-visitors th {
+    background: #eaf1e9;
+    color: #173d2f
+}
+
+.ew-visitors button {
+    border: 1px solid #c5d9ca;
+    border-radius: 8px;
+    padding: 7px 12px;
+    background: #e8f3eb;
+    color: #174b39;
+    cursor: pointer
+}
+
+.ew-visitors-history {
+    background: #f6f8f4;
+    border: 1px solid #d8e4da;
+    border-radius: 14px;
+    padding: 14px;
+    display: grid;
+    gap: 12px
+}
+
+.ew-visitors-history-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px
+}
+
+.ew-visitors-history h2 {
+    font-size: 17px;
+    margin: 0
+}
+
+.ew-visitors-note {
+    color: #526c60;
+    font-size: 12px
+}
+
+.ew-visitors-error {
+    color: #a32a2a
+}
+
+@media(max-width:900px) {
+    .ew-visitors-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr))
+    }
+}
+
+@media(max-width:500px) {
+    .ew-visitors-stats {
+        grid-template-columns: 1fr 1fr
+    }
+
+    .ew-visitors-stats article {
+        padding: 12px
+    }
+
+    .ew-visitors-stats strong {
+        font-size: 22px
+    }
+}

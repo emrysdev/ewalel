@@ -28,6 +28,8 @@ const __filename = fileURLToPath(
 const __dirname = path.dirname(__filename);
 
 const app = express();
+// Railway terminates HTTPS at its reverse proxy. Trust one proxy hop.
+if (process.env.RAILWAY_ENVIRONMENT) app.set("trust proxy", 1);
 
 app.use(compression());
 
@@ -3210,6 +3212,88 @@ app.patch('/api/admin/reviews/:id',auth,asyncRoute(async(req,res)=>{
 app.get('/api/reviews',asyncRoute(async(req,res)=>{
   res.json(await query("SELECT id,guest_name,cottage_name,rating,remarks,created_at FROM guest_reviews WHERE status='approved' ORDER BY created_at DESC LIMIT 30"));
 }));
+
+
+// ======================================================
+// FIRST-PARTY VISITOR ANALYTICS (Kenya business timezone)
+// Run website_visits.sql before deploying this code.
+// ======================================================
+const visitLimiter = rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: "draft-7", legacyHeaders: false });
+function kenyaBounds(daysBack = 0) {
+  const now = new Date();
+  const kenyaDay = new Date(now.getTime() + 3 * 3600000).toISOString().slice(0, 10);
+  const start = new Date(`${kenyaDay}T00:00:00.000Z`);
+  start.setUTCDate(start.getUTCDate() - daysBack);
+  start.setUTCHours(start.getUTCHours() - 3);
+  return start;
+}
+function visitorIp(req) {
+  // Only trust X-Forwarded-For when Railway/proxy configuration is explicitly trusted.
+  return String(req.ip || req.socket.remoteAddress || "").slice(0, 45);
+}
+app.post("/api/visits", visitLimiter, asyncRoute(async (req, res) => {
+  const visitorId = String(req.body?.visitor_id || "");
+  const page = String(req.body?.page || "/");
+  if (!/^[a-f0-9-]{36}$/i.test(visitorId) || !page.startsWith("/") || page.length > 255 || page.startsWith("/admin")) {
+    return res.status(400).json({ error: "Invalid visit" });
+  }
+  await query(`INSERT INTO website_visits (visitor_id, ip_address, page_path, referrer, user_agent)
+               VALUES (?, ?, ?, ?, ?)`, [
+    visitorId, visitorIp(req), page,
+    String(req.body?.referrer || "").slice(0, 500),
+    String(req.headers["user-agent"] || "").slice(0, 500)
+  ]);
+  res.status(204).end();
+}));
+app.get("/api/admin/visitors", auth, asyncRoute(async (req, res) => {
+  const today = kenyaBounds(0);
+  const week = kenyaBounds(6);
+  const month = kenyaBounds(29);
+  // DATE_FORMAT returns a string, avoiding JavaScript/MySQL timezone date shifts.
+  // All visit timestamps are treated as UTC and displayed as EAT by the client.
+  const [summaryRows, daily, pages, recent, ipHistory] = await Promise.all([
+    query(`SELECT
+      COUNT(CASE WHEN visited_at >= ? THEN 1 END) AS views_today,
+      COUNT(DISTINCT CASE WHEN visited_at >= ? THEN COALESCE(visitor_id, session_id) END) AS visitors_today,
+      COUNT(DISTINCT CASE WHEN visited_at >= ? THEN COALESCE(visitor_id, session_id) END) AS visitors_7d,
+      COUNT(DISTINCT CASE WHEN visited_at >= ? THEN COALESCE(visitor_id, session_id) END) AS visitors_30d,
+      COUNT(*) AS views_30d
+      FROM website_visits WHERE visited_at >= ?`, [today, today, week, month, month, month]),
+    query(`SELECT DATE_FORMAT(visited_at + INTERVAL 3 HOUR, '%Y-%m-%d') AS day,
+      COUNT(*) AS views,
+      COUNT(DISTINCT COALESCE(visitor_id, session_id)) AS visitors
+      FROM website_visits WHERE visited_at >= ?
+      GROUP BY DATE_FORMAT(visited_at + INTERVAL 3 HOUR, '%Y-%m-%d') ORDER BY day`, [month]),
+    query(`SELECT page_path AS page, COUNT(*) AS views
+      FROM website_visits WHERE visited_at >= ?
+      GROUP BY page_path ORDER BY views DESC LIMIT 20`, [month]),
+    query(`SELECT id, ip_address, page_path,
+      DATE_FORMAT(visited_at, '%Y-%m-%d %H:%i:%s') AS visited_at,
+      country, region, city, COALESCE(visitor_id, session_id) AS visitor_id
+      FROM website_visits WHERE visited_at >= ?
+      ORDER BY visited_at DESC, id DESC LIMIT 100`, [week]),
+    query(`SELECT ip_address, COUNT(*) AS views,
+      COUNT(DISTINCT COALESCE(visitor_id, session_id)) AS sessions,
+      DATE_FORMAT(MIN(visited_at), '%Y-%m-%d %H:%i:%s') AS first_visit,
+      DATE_FORMAT(MAX(visited_at), '%Y-%m-%d %H:%i:%s') AS last_visit,
+      SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(country, '') ORDER BY visited_at DESC SEPARATOR '|'), '|', 1) AS country,
+      SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(region, '') ORDER BY visited_at DESC SEPARATOR '|'), '|', 1) AS region,
+      SUBSTRING_INDEX(GROUP_CONCAT(NULLIF(city, '') ORDER BY visited_at DESC SEPARATOR '|'), '|', 1) AS city
+      FROM website_visits WHERE visited_at >= ?
+      GROUP BY ip_address ORDER BY views DESC, last_visit DESC LIMIT 500`, [month])
+  ]);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ summary: summaryRows[0], daily, pages, recent, ip_history: ipHistory,
+    timezone: "Africa/Nairobi", timestamp_timezone: "UTC" });
+}));
+// Purge expired IP records and visits at startup and every 24h.
+async function purgeOldVisits() {
+  try { await query("DELETE FROM website_visits WHERE visited_at < UTC_TIMESTAMP() - INTERVAL 30 DAY"); }
+  catch (err) { console.error("Visitor retention cleanup failed:", err.message); }
+}
+void purgeOldVisits();
+const visitPurgeTimer = setInterval(purgeOldVisits, 24 * 60 * 60 * 1000);
+visitPurgeTimer.unref?.();
 
 app.use(express.static(clientDist));
 
