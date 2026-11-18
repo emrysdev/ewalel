@@ -3228,23 +3228,101 @@ function kenyaBounds(daysBack = 0) {
   return start;
 }
 function visitorIp(req) {
-  // Only trust X-Forwarded-For when Railway/proxy configuration is explicitly trusted.
-  return String(req.ip || req.socket.remoteAddress || "").slice(0, 45);
+  // Express uses trusted proxy headers only when trust proxy is configured.
+  const raw = String(req.ip || req.socket.remoteAddress || "");
+  return raw.startsWith("::ffff:") ? raw.slice(7, 52) : raw.slice(0, 45);
 }
+
+// Resolve approximate geographic location using a public IP geolocation API.
+// Do not send local/private addresses to an external service.
+// Geolocation is approximate and may identify a network gateway or VPN.
+const geoCache = new Map();
+function isPublicIp(ip) {
+  if (ip === "::1" || ip === "localhost" || !ip) return false;
+  if (/^(10|127|0|169\.254|192\.168)\./.test(ip)) return false;
+  const parts = ip.split(".");
+  if (parts.length === 4) {
+    if (!parts.every(p => /^\d{1,3}$/.test(p) && Number(p) <= 255)) return false;
+    const [a, b] = parts.map(Number);
+    if (a >= 224 || a === 0 || a === 10 || a === 127 ||
+        (a === 100 && b >= 64 && b <= 127) ||
+        (a === 172 && b >= 16 && b <= 31) ||
+        (a === 192 && (b === 168 || b === 0)) ||
+        (a === 198 && (b === 18 || b === 19)) ||
+        (a === 169 && b === 254)) return false;
+    return true;
+  }
+  // Skip IPv6 geolocation for now; do not send non-public or ambiguous IPv6 addresses.
+  return false;
+}
+async function lookupVisitorLocation(ip) {
+  if (!isPublicIp(ip)) return { country: null, region: null, city: null };
+  const cached = geoCache.get(ip);
+  if (cached && cached.expires > Date.now()) return cached.value;
+  let value = { country: null, region: null, city: null };
+  try {
+    const response = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`, {
+      signal: AbortSignal.timeout(3500),
+      headers: { Accept: "application/json" }
+    });
+    if (response.ok) {
+      const result = await response.json();
+      if (result.success === true) {
+        const clean = (v, max) => typeof v === "string" ? v.trim().slice(0, max) || null : null;
+        value = {
+          country: clean(result.country, 100),
+          region: clean(result.region, 100),
+          city: clean(result.city, 100)
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("Visitor geolocation unavailable:", err.message);
+  }
+  if (geoCache.size > 1000) geoCache.clear();
+  geoCache.set(ip, { value, expires: Date.now() + (value.country ? 86400000 : 3600000) });
+  return value;
+}
+
 app.post("/api/visits", visitLimiter, asyncRoute(async (req, res) => {
   const visitorId = String(req.body?.visitor_id || "");
   const page = String(req.body?.page || "/");
   if (!/^[a-f0-9-]{36}$/i.test(visitorId) || !page.startsWith("/") || page.length > 255 || page.startsWith("/admin")) {
     return res.status(400).json({ error: "Invalid visit" });
   }
-  await query(`INSERT INTO website_visits (visitor_id, ip_address, page_path, referrer, user_agent)
-               VALUES (?, ?, ?, ?, ?)`, [
-    visitorId, visitorIp(req), page,
+  const ip = visitorIp(req);
+  const geo = await lookupVisitorLocation(ip);
+  await query(`INSERT INTO website_visits
+    (visitor_id, ip_address, page_path, referrer, user_agent, country, region, city)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+    visitorId, ip, page,
     String(req.body?.referrer || "").slice(0, 500),
-    String(req.headers["user-agent"] || "").slice(0, 500)
+    String(req.headers["user-agent"] || "").slice(0, 500),
+    geo.country, geo.region, geo.city
   ]);
   res.status(204).end();
 }));
+
+// Admin-only, bounded backfill for earlier visits with missing locations.
+// Run once after deploying, while signed in. No booking or payment data is touched.
+app.post("/api/admin/visitors/backfill-locations", auth, asyncRoute(async (req, res) => {
+  const rows = await query(`SELECT DISTINCT ip_address FROM website_visits
+    WHERE visited_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY
+      AND country IS NULL AND ip_address IS NOT NULL LIMIT 50`);
+  let updated = 0, unresolved = 0;
+  for (const row of rows) {
+    const geo = await lookupVisitorLocation(String(row.ip_address));
+    if (!geo.country) { unresolved++; continue; }
+    const result = await query(`UPDATE website_visits
+      SET country = ?, region = ?, city = ?
+      WHERE ip_address = ? AND country IS NULL
+        AND visited_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY`,
+      [geo.country, geo.region, geo.city, row.ip_address]);
+    updated += Number(result.affectedRows || 0);
+  }
+  res.json({ ok: true, ips_checked: rows.length, visits_updated: updated, ips_unresolved: unresolved });
+}));
+
 app.get("/api/admin/visitors", auth, asyncRoute(async (req, res) => {
   const today = kenyaBounds(0);
   const week = kenyaBounds(6);
