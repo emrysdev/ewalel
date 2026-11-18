@@ -111,22 +111,42 @@ function loadLeaflet() {
 function VisitorMap({ locations }) {
   const containerRef = useRef(null);
   const [mapError, setMapError] = useState("");
+  const mapKey = (import.meta.env.VITE_MAPTILER_KEY || "").trim();
+
   useEffect(() => {
+    if (!mapKey) {
+      setMapError("Map background is not configured. Add VITE_MAPTILER_KEY to your frontend environment variables and redeploy.");
+      return;
+    }
     let cancelled = false;
     let map;
+    setMapError("");
     loadLeaflet().then(L => {
       if (cancelled || !containerRef.current) return;
       map = L.map(containerRef.current, { scrollWheelZoom: false }).setView([0, 20], 2);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxZoom: 18,
-      }).addTo(map);
+      const tiles = L.tileLayer(
+        `https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=${encodeURIComponent(mapKey)}`,
+        {
+          attribution: '&copy; <a href="https://www.maptiler.com/copyright/">MapTiler</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+          tileSize: 256,
+          maxZoom: 18,
+        }
+      );
+      let tileFailures = 0;
+      tiles.on("tileerror", () => {
+        tileFailures += 1;
+        if (!cancelled && tileFailures >= 2) {
+          setMapError("Map tiles could not load. Check your MapTiler API key, allowed website origins, and plan limits.");
+        }
+      });
+      tiles.addTo(map);
+
       const bounds = [];
       locations.forEach(item => {
         const coords = [item.latitude, item.longitude];
         bounds.push(coords);
         const circle = L.circleMarker(coords, {
-          radius: Math.min(19, 6 + Math.sqrt(item.views) * 2),
+          radius: Math.min(19, 6 + Math.sqrt(Number(item.views) || 0) * 2),
           color: "#0a5448", fillColor: "#18836f", fillOpacity: 0.7, weight: 2,
         }).addTo(map);
         const popup = document.createElement("div");
@@ -141,11 +161,12 @@ function VisitorMap({ locations }) {
       setTimeout(() => { if (!cancelled) map.invalidateSize(); }, 100);
     }).catch(err => { if (!cancelled) setMapError(err.message); });
     return () => { cancelled = true; if (map) map.remove(); };
-  }, [locations]);
+  }, [locations, mapKey]);
+
   return <div className="va-map-wrap">
     <div ref={containerRef} className="va-map" role="img" aria-label="Map showing approximate visitor locations" />
-    {mapError && <p className="va-map-message">{mapError}. Check your internet connection.</p>}
-    {!locations.length && <p className="va-map-message">No mapped locations yet. Geolocation coordinates will appear for new public-IP visits.</p>}
+    {mapError && <p className="va-map-message" role="status">{mapError}</p>}
+    {!locations.length && <p className="va-map-message">No mapped locations yet. The backend must return latitude and longitude for public-IP visits.</p>}
   </div>;
 }
 
@@ -205,27 +226,50 @@ export default function VisitorAnalytics({ token }) {
   const selectedVisits = useMemo(() => (data?.recent || []).filter(row => row.ip_address === selectedIp), [data, selectedIp]);
   // Count recorded page views by country. These are not unique-person percentages.
   const countryLocations = useMemo(() => {
+    // Prefer the API's country aggregates when supplied; otherwise derive
+    // recorded page views from the per-IP history (the existing backend format).
+    const supplied = Array.isArray(data?.locations) ? data.locations :
+      Array.isArray(data?.countries) ? data.countries : null;
     const groups = new Map();
-    for (const row of ipHistory) {
-      const country = String(row.country || "").trim() || "Unknown location";
-      groups.set(country, (groups.get(country) || 0) + Number(row.views || 0));
+    if (supplied?.length) {
+      for (const row of supplied) {
+        const country = String(row.country || row.name || "").trim() || "Unknown location";
+        const views = Number(row.views ?? row.page_views ?? row.count ?? 0);
+        if (Number.isFinite(views) && views >= 0) groups.set(country, (groups.get(country) || 0) + views);
+      }
+    } else {
+      for (const row of ipHistory) {
+        const country = String(row.country || "").trim() || "Unknown location";
+        groups.set(country, (groups.get(country) || 0) + Number(row.views || 0));
+      }
     }
     const total = [...groups.values()].reduce((sum, count) => sum + count, 0);
     return [...groups].map(([country, views]) => ({
       country, views, percent: total ? (views / total) * 100 : 0,
     })).sort((a, b) => b.views - a.views);
-  }, [ipHistory]);
+  }, [data, ipHistory]);
+
   const mappedLocations = useMemo(() => {
+    // Some backend releases return map_points, others only ip_history.
+    // Never geocode an IP in the browser or substitute a country centroid.
+    const supplied = Array.isArray(data?.map_points) ? data.map_points : null;
+    const rows = supplied?.length ? supplied : ipHistory;
     const groups = new Map();
-    for (const row of ipHistory) {
-      const lat = Number(row.latitude), lon = Number(row.longitude);
-      if (row.latitude == null || row.longitude == null || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+    for (const row of rows) {
+      const rawLat = row.latitude ?? row.lat;
+      const rawLon = row.longitude ?? row.lng ?? row.lon;
+      if (rawLat == null || rawLon == null || rawLat === "" || rawLon === "") continue;
+      const lat = Number(rawLat), lon = Number(rawLon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
       const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
-      if (!groups.has(key)) groups.set(key, { latitude: lat, longitude: lon, label: place(row), views: 0 });
-      groups.get(key).views += Number(row.views || 0);
+      if (!groups.has(key)) groups.set(key, {
+        latitude: lat, longitude: lon,
+        label: row.label || place(row), views: 0,
+      });
+      groups.get(key).views += Number(row.views ?? row.page_views ?? row.count ?? 0);
     }
     return [...groups.values()];
-  }, [ipHistory]);
+  }, [data, ipHistory]);
 
   const metrics = [
     { label: "Visitors today", value: data?.summary?.visitors_today, icon: "◉" },

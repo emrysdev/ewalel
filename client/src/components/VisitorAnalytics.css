@@ -90,3 +90,14 @@
 .visitor-analytics .va-map-note{margin:12px 0 0}
 .visitor-analytics .va-map-wrap .leaflet-container{font-family:inherit;font-size:12px}
 @media(max-width:1100px){.visitor-analytics .va-location-grid{grid-template-columns:1fr}}
+
+/* Map remains usable on narrow screens and in the admin sidebar layout. */
+.visitor-analytics .va-location-grid > .va-panel { min-width:0; }
+.visitor-analytics .va-map-wrap { isolation:isolate; }
+.visitor-analytics .va-map { min-height:290px; }
+.visitor-analytics .va-country-label span { min-width:0; overflow-wrap:anywhere; }
+@media (max-width:600px) {
+  .visitor-analytics .va-location-grid { display:grid; grid-template-columns:minmax(0,1fr); }
+  .visitor-analytics .va-map, .visitor-analytics .va-map-wrap { min-height:260px; }
+  .visitor-analytics .va-map { height:260px; }
+}

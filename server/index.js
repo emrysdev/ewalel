@@ -3300,8 +3300,9 @@ app.post("/api/visits", visitLimiter, asyncRoute(async (req, res) => {
   const ip = visitorIp(req);
   // Reuse valid previously stored geography for this IP when the provider is unavailable.
   const existingGeo = await query(`SELECT country, region, city, latitude, longitude
-    FROM website_visits WHERE ip_address = ? AND country IS NOT NULL
-    ORDER BY visited_at DESC LIMIT 1`, [ip]);
+    FROM website_visits WHERE ip_address = ?
+      AND (country IS NOT NULL OR latitude IS NOT NULL OR longitude IS NOT NULL)
+    ORDER BY (latitude IS NOT NULL AND longitude IS NOT NULL) DESC, visited_at DESC LIMIT 1`, [ip]);
   const saved = existingGeo[0] || {};
   const lookedUp = await lookupVisitorLocation(ip);
   const geo = {
@@ -3333,8 +3334,9 @@ app.post("/api/admin/visitors/backfill-locations", auth, asyncRoute(async (req, 
   for (const row of rows) {
     const ip = String(row.ip_address);
     const previous = await query(`SELECT country, region, city, latitude, longitude
-      FROM website_visits WHERE ip_address = ? AND country IS NOT NULL
-      ORDER BY visited_at DESC LIMIT 1`, [ip]);
+      FROM website_visits WHERE ip_address = ?
+        AND (country IS NOT NULL OR latitude IS NOT NULL OR longitude IS NOT NULL)
+      ORDER BY (latitude IS NOT NULL AND longitude IS NOT NULL) DESC, visited_at DESC LIMIT 1`, [ip]);
     const saved = previous[0] || {};
     const fresh = await lookupVisitorLocation(ip);
     const geo = {
@@ -3344,7 +3346,7 @@ app.post("/api/admin/visitors/backfill-locations", auth, asyncRoute(async (req, 
       latitude: fresh.latitude ?? saved.latitude ?? null,
       longitude: fresh.longitude ?? saved.longitude ?? null
     };
-    if (!geo.country && geo.latitude == null) { unresolved++; continue; }
+    if (!geo.country && (geo.latitude == null || geo.longitude == null)) { unresolved++; continue; }
     const result = await query(`UPDATE website_visits
       SET country = COALESCE(NULLIF(country, ''), ?),
           region = COALESCE(NULLIF(region, ''), ?),
@@ -3397,9 +3399,46 @@ app.get("/api/admin/visitors", auth, asyncRoute(async (req, res) => {
       FROM website_visits WHERE visited_at >= ?
       GROUP BY ip_address ORDER BY views DESC, last_visit DESC LIMIT 500`, [month])
   ]);
+  // Aggregate country totals from the recorded visits (not the IP summary).
+  // Unknown locations remain visible rather than being assigned a guessed country.
+  const locations = await query(`SELECT
+      COALESCE(NULLIF(TRIM(country), ''), 'Unknown location') AS country,
+      COUNT(*) AS views,
+      COUNT(DISTINCT COALESCE(visitor_id, session_id)) AS visitors
+    FROM website_visits WHERE visited_at >= ?
+    GROUP BY COALESCE(NULLIF(TRIM(country), ''), 'Unknown location')
+    ORDER BY views DESC, country ASC`, [month]);
+
+  // Coordinates represent approximate IP network locations, not precise addresses.
+  // Only send usable coordinate pairs to the frontend map.
+  const mapPoints = await query(`SELECT
+      ip_address,
+      MAX(NULLIF(country, '')) AS country,
+      MAX(NULLIF(region, '')) AS region,
+      MAX(NULLIF(city, '')) AS city,
+      latitude, longitude,
+      COUNT(*) AS views,
+      COUNT(DISTINCT COALESCE(visitor_id, session_id)) AS visitors
+    FROM website_visits
+    WHERE visited_at >= ?
+      AND latitude IS NOT NULL AND longitude IS NOT NULL
+      AND latitude BETWEEN -90 AND 90
+      AND longitude BETWEEN -180 AND 180
+    GROUP BY ip_address, latitude, longitude
+    ORDER BY views DESC LIMIT 500`, [month]);
+
   res.setHeader("Cache-Control", "no-store");
-  res.json({ summary: summaryRows[0], daily, pages, recent, ip_history: ipHistory,
-    timezone: "Africa/Nairobi", timestamp_timezone: "UTC" });
+  res.json({
+    summary: summaryRows[0], daily, pages, recent,
+    ip_history: ipHistory,
+    locations,
+    map_points: mapPoints.map(point => ({
+      ...point,
+      latitude: Number(point.latitude),
+      longitude: Number(point.longitude)
+    })),
+    timezone: "Africa/Nairobi", timestamp_timezone: "UTC"
+  });
 }));
 // Purge expired IP records and visits at startup and every 24h.
 async function purgeOldVisits() {
