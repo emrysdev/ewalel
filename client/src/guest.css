@@ -1,14 +1,14 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,500;1,600&display=swap');
 
 :root {
-  --ew-navy: #05283a;
-  --ew-deep: #031e2d;
-  --ew-teal: #103f46;
-  --ew-pink: #ffa4a6;
-  --ew-pink-dark: #ed858d;
-  --ew-cream: #fff8f1;
+  --ew-navy: #102f25;
+  --ew-deep: #102f25;
+  --ew-teal: #174b39;
+  --ew-pink: #cba461;
+  --ew-pink-dark: #a77b38;
+  --ew-cream: #f7f3ea;
   --ew-white: #ffffff;
-  --ew-muted: #6d7a7e;
+  --ew-muted: #40584e;
 }
 
 * {
@@ -1535,30 +1535,10 @@ body {
 @media(max-width:600px) { .ew-booking-steps { padding: 14px; } .ew-booking-step-actions { flex-direction: column; } }
 
 
-/* Ewalel three-step booking flow — append to existing guest.css */
-.ew-booking-steps { border: 1px solid #e2e1df; border-radius: 18px; padding: 20px; margin-top: 24px; }
-.ew-booking-progress { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; padding-bottom: 22px; border-bottom: 1px solid #e8e8e8; margin-bottom: 24px; }
-.ew-booking-progress-item { display: flex; align-items: center; flex-direction: column; gap: 5px; color: #666; text-align: center; }
-.ew-booking-progress-item span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #f0f0f0; font-weight: 700; }
-.ew-booking-progress-item.active span, .ew-booking-progress-item.completed span { background: #082b3d; color: #fff; }
-.ew-booking-progress-item small { font-size: 11px; }
-.ew-booking-step-body > h2 { margin-top: 0; }
-.ew-booking-step-body > p { color: #64748b; }
-.ew-booking-step-body > label, .ew-step-extra-guests label { display: grid; gap: 8px; font-weight: 600; margin: 14px 0; }
-.ew-booking-step-body input:not([type="radio"]):not([type="checkbox"]) { width: 100%; box-sizing: border-box; border: 1px solid #d3dbdf; border-radius: 12px; padding: 15px; background: transparent; color: #082b3d; font: inherit; }
-.ew-booking-step-body input:focus-visible { outline: 2px solid #ed91ac; outline-offset: 2px; }
-.ew-step-extra-guests { margin: 24px 0; }
-.ew-step-extra-guests label { padding: 15px; background: #f5faf8; border: 1px solid #d9e7e2; border-radius: 12px; }
-.ew-booking-step-actions { display: flex; gap: 12px; margin-top: 18px; }
-.ew-booking-next { display: inline-flex; justify-content: center; align-items: center; gap: 10px; flex: 1; padding: 13px 20px; border: 0; border-radius: 25px; background: #082b3d; color: white; font-weight: 700; cursor: pointer; }
-.ew-booking-next:disabled { opacity: .5; cursor: not-allowed; }
-.ew-booking-back { border: 1px solid #cdd7dc; border-radius: 25px; padding: 12px 20px; background: transparent; cursor: pointer; }
-.ew-step-policy { border: 1px solid #e7d8d7; background: #fff7f6; border-radius: 12px; padding: 16px; margin-top: 20px; }
-.ew-step-policy h3 { margin-top: 0; }
-.ew-step-policy-accept { display: flex !important; flex-direction: row !important; align-items: flex-start; gap: 10px; margin-top: 18px; }
-.ew-step-policy-accept input { flex-shrink: 0; margin-top: 5px; }
-@media(max-width:600px) { .ew-booking-steps { padding: 14px; } .ew-booking-step-actions { flex-direction: column; } }
-\n/* Two-stage progress indicator */\n.ew-booking-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }\n.ew-booking-step-body > h2:not(:first-child) { margin-top: 30px; }
+
+/* Two-stage progress indicator */
+.ew-booking-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ew-booking-step-body > h2:not(:first-child) { margin-top: 30px; }
 
 
 /* Payment method panels — append to guest.css */
@@ -1821,3 +1801,167 @@ body {
 .ew-card-secure-notice svg { flex-shrink: 0; color: #087563; }
 .ew-card-gateway-placeholder { display: flex; align-items: center; justify-content: center; gap: 10px; background: #e9efef; color: #415b62; padding: 15px; border-radius: 999px; margin: 18px 0; font-size: 13px; font-weight: 700; text-align: center; }
 @media(max-width: 600px) { .ew-card-checkout { padding: 16px; } .ew-card-checkout-grid { grid-template-columns: 1fr; } .ew-card-amount strong { font-size: 18px; } }
+
+/* Cash payment acknowledgement */
+.ew-cash-agreement { margin-top:16px; padding:16px; border:1px solid #cfe1dc; border-radius:12px; background:#fff; }
+.ew-cash-agreement-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:9px; background:#e5f3ee; }
+.ew-cash-agreement-summary strong { color:#082e3e; font-size:19px; }
+.ew-cash-agreement > p { margin:12px 0; font-size:14px; }
+.ew-cash-agreement-check { display:flex; align-items:flex-start; gap:10px; line-height:1.65; cursor:pointer; }
+.ew-cash-agreement-check input { flex-shrink:0; margin-top:5px; }
+.ew-cash-agreement-check span { flex:1; }
+
+/* EWALEL NATURE REDESIGN — scoped to public guest site */
+.nature-theme{--ew-navy:#173b30;--ew-deep:#102e25;--ew-teal:#173f30;--ew-pink:#c6a063;--ew-pink-dark:#a9874d;--ew-cream:#f8f4eb;color:#20372d;background:#f8f4eb}
+.nature-theme .ew-header{background:#102c25;border-bottom:0}
+.nature-theme .ew-header-inner{min-height:76px;max-width:1440px;padding:8px 34px;gap:22px}
+.nature-theme .ew-brand{width:145px;min-width:145px}.nature-theme .ew-logo-image{max-width:145px;max-height:66px}
+.nature-theme .ew-navigation-area{flex:1}.nature-theme .ew-tagline{display:none}
+.nature-theme .ew-nav{justify-content:center;gap:12px}
+.nature-theme .ew-nav button{color:#f7f4e9;font-size:13px;padding:10px 9px}
+.nature-theme .ew-nav button.active{color:#d9b875;background:transparent;border-bottom:1px solid #d9b875;border-radius:0}
+.nature-theme .ew-paybill{display:none}
+.nature-header-book{display:flex;align-items:center;gap:8px;background:#cba66d!important;color:#172d25!important;border:0;border-radius:28px;padding:12px 19px;font-weight:700;white-space:nowrap;font-size:13px}
+.nature-hero{position:relative;min-height:590px;color:white;isolation:isolate;display:flex;align-items:center}
+.nature-hero-photo,.nature-hero-overlay{position:absolute;inset:0;width:100%;height:100%}.nature-hero-photo{object-fit:cover;z-index:-2}.nature-hero-overlay{z-index:-1;background:linear-gradient(90deg,rgba(8,29,24,.84),rgba(8,29,24,.5) 45%,rgba(8,29,24,.05) 80%)}
+.nature-hero-inner{max-width:1350px;width:100%;margin:0 auto;padding:80px 40px 145px}.nature-eyebrow{color:#ebd4a2;font-size:12px;letter-spacing:2px;font-weight:700}.nature-eyebrow span{padding-left:10px}
+.nature-hero h1{font-family:'Playfair Display',Georgia,serif;font-weight:500;font-size:clamp(44px,5.2vw,79px);line-height:1.12;letter-spacing:-1.6px;margin:23px 0 18px;max-width:720px}
+.nature-hero-inner>p{max-width:590px;line-height:1.8;font-size:16px;color:#f4f2eb}.nature-highlights{display:flex;flex-wrap:wrap;gap:22px;margin-top:28px;font-size:12px;color:#f5e9cf}.nature-highlights span{display:flex;gap:7px;align-items:center}
+.nature-search{position:absolute;bottom:-29px;left:50%;transform:translateX(-50%);width:min(1100px,calc(100% - 50px));background:#fff;box-shadow:0 14px 35px #0a271f38;border-radius:15px;display:grid;grid-template-columns:1fr 1fr 1fr auto;align-items:center;padding:12px;gap:0;z-index:2;color:#1d372b}
+.nature-search label{display:flex;gap:12px;align-items:center;padding:5px 18px;border-right:1px solid #e5e7e2;min-width:0}.nature-search label>svg{flex-shrink:0;color:#536e5c}.nature-search label span{display:flex;flex-direction:column;gap:5px;min-width:0}.nature-search label strong{font-size:12px}.nature-search input,.nature-search select{border:0;background:transparent;color:#52655b;font-size:13px;width:100%;min-width:0;max-width:180px;outline-offset:3px}.nature-search button{display:flex;align-items:center;justify-content:center;gap:10px;background:#174d39;color:white;border:0;border-radius:9px;padding:18px 22px;font-size:13px;font-weight:700;white-space:nowrap}
+.nature-home-error{margin:50px auto 0;max-width:1100px;color:#a12b2b;padding:0 20px}
+.nature-cottages{max-width:1370px;margin:0 auto;padding:105px 35px 70px;display:grid;grid-template-columns:minmax(220px,.9fr) minmax(0,2.1fr);gap:45px;align-items:center}
+.nature-section-kicker{font-size:12px;letter-spacing:2px;color:#b18b4c;font-weight:700}.nature-cottages-intro h2{font-family:'Playfair Display',Georgia,serif;font-size:clamp(35px,3.5vw,54px);font-weight:500;margin:12px 0}.nature-cottages-intro p{font-size:15px;line-height:1.8;color:#607165;max-width:310px}.nature-cottages-intro button{display:flex;align-items:center;gap:12px;background:transparent;border:1px solid #b99b6d;border-radius:9px;color:#244333;padding:12px 17px;margin-top:24px;font-weight:700}
+.nature-cottage-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.nature-cottage-tile{border-radius:13px;overflow:hidden;background:white;box-shadow:0 8px 22px #183a2a17}.nature-tile-photo{display:block;position:relative;border:0;padding:0;width:100%;height:215px;overflow:hidden;background:#e5e1d5}.nature-tile-photo img{width:100%;height:100%;object-fit:cover;transition:transform .3s}.nature-tile-photo:hover img{transform:scale(1.04)}.nature-tile-photo span{position:absolute;bottom:14px;left:14px;background:#164c37;color:white;border-radius:7px;padding:10px 15px;font-size:13px;font-weight:700}.nature-tile-meta{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:14px;font-size:11px;color:#52665b}.nature-tile-meta span{display:flex;align-items:center;gap:5px}
+.nature-benefits{background:#103e2e;color:#fff;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;padding:27px max(28px,calc((100vw - 1320px)/2))}.nature-benefits>div{display:flex;align-items:center;gap:14px;padding:10px 20px;border-right:1px solid #ffffff2b}.nature-benefits>div:last-child{border:0}.nature-benefits svg{color:#c6a66a;flex-shrink:0;width:27px}.nature-benefits span{display:flex;flex-direction:column;gap:4px}.nature-benefits strong{font-size:12px}.nature-benefits small{font-size:10px;color:#d4e0d5;line-height:1.5}
+@media(max-width:1000px){.nature-theme .ew-header-inner{padding:10px 20px}.nature-theme .ew-nav{gap:3px}.nature-theme .ew-nav button{font-size:12px;padding:8px 5px}.nature-cottages{gap:25px}.nature-benefits{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){.nature-theme .ew-header-inner{min-height:70px}.nature-header-book{margin-left:auto;padding:10px 13px;font-size:11px}.nature-theme .ew-nav{justify-content:flex-start}.nature-hero{min-height:650px}.nature-hero-inner{padding:55px 22px 260px}.nature-hero h1{font-size:clamp(39px,9vw,60px)}.nature-desktop{display:none}.nature-highlights{gap:12px}.nature-search{bottom:-100px;grid-template-columns:1fr 1fr;width:calc(100% - 28px);padding:10px}.nature-search label{padding:12px 8px}.nature-search label:nth-child(2){border:0}.nature-search label:nth-child(3){border-top:1px solid #eee}.nature-search button{padding:15px 10px}.nature-cottages{padding:155px 20px 45px;grid-template-columns:1fr}.nature-cottage-list{gap:12px}.nature-tile-photo{height:170px}.nature-tile-meta{flex-direction:column}.nature-benefits{padding:15px 10px}.nature-benefits>div{padding:12px 8px}.nature-benefits svg{width:21px}}
+@media(max-width:420px){.nature-cottage-list{grid-template-columns:1fr}.nature-hero-inner{padding-bottom:290px}.nature-search{grid-template-columns:1fr 1fr}.nature-search label{gap:5px}.nature-search label>svg{width:16px}.nature-search input,.nature-search select{font-size:11px}.nature-search button{font-size:11px}}
+
+/* Home cottage showcase: moved from standalone Cottages page. */
+.ew-home-cottages { scroll-margin-top: 90px; }
+.ew-home-cottages .ew-page-heading { text-align: center; }
+.ew-home-cottages .ew-cottage-grid { margin-left: auto; margin-right: auto; }
+@media (max-width: 700px) { .ew-home-cottages { scroll-margin-top: 70px; } }
+
+/* Screenshot-accurate homepage adjustments; booking-specific styles are unchanged. */
+.nature-site-header .ew-header-inner{min-height:70px;max-width:1380px;gap:20px}
+.nature-site-header .ew-navigation-area{border-left:1px solid #ffffff55;padding-left:20px}
+.nature-site-header .ew-nav{justify-content:center}
+.nature-header-phone{display:inline-flex;align-items:center;gap:6px;color:#f4f0e6;text-decoration:none;font-size:12px;white-space:nowrap}
+.nature-theme .ew-header .ew-mobile-menu{color:#fff}
+.nature-hero{min-height:550px}
+.nature-hero-inner{padding-bottom:125px}
+.nature-hero h1{font-size:clamp(48px,5.6vw,80px);line-height:1.02}
+.nature-cottages{scroll-margin-top:30px;padding-top:90px;padding-bottom:60px}
+.nature-tile-photo .ew-cottage-gallery-trigger{width:100%;height:100%;display:block;position:relative;border:0;padding:0;cursor:pointer}
+.nature-tile-photo .ew-cottage-gallery-trigger>img{width:100%;height:100%;object-fit:cover;display:block}
+.nature-tile-photo .ew-gallery-view-label{position:absolute;right:9px;top:9px;bottom:auto;left:auto;background:#fffef2;color:#164231;padding:6px 9px;border-radius:15px;font-size:10px;display:flex;align-items:center;gap:5px}
+.nature-tile-photo>span{pointer-events:none;z-index:2}
+.nature-tile-bottom{padding:0 14px 14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.nature-tile-bottom strong{font-size:14px;color:#173f30}.nature-tile-bottom small{font-size:10px;font-weight:400;color:#66776c}
+.nature-tile-bottom button{background:#cba66d;color:#19362b;border:0;border-radius:30px;padding:9px 12px;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700}
+.nature-dates{font-size:12px!important;margin-top:16px;color:#557163}
+.nature-theme .ew-photo-dialog-foot button{background:#cba66d;color:#173b30}
+@media(max-width:1050px){.nature-header-phone{display:none}}
+@media(max-width:760px){.nature-site-header .ew-navigation-area{border:0;padding:0}.nature-hero{min-height:640px}.nature-hero-inner{padding-bottom:240px}.nature-cottages{padding-top:155px}.nature-tile-photo{height:185px}}
+@media(max-width:480px){.nature-cottage-list{grid-template-columns:1fr}.nature-hero-inner{padding-bottom:290px}.nature-site-header .ew-brand{min-width:90px;width:90px}.nature-header-book{font-size:10px}}
+
+
+/* Logo integration — forest-green header, cream lettering and warm accents.
+   Screen blending suppresses a dark rectangular logo background while retaining
+   the original artwork (including pink flamingos). */
+.nature-theme .ew-header,
+.nature-theme .nature-site-header { background-color: #102c25; }
+.nature-theme .ew-brand { background: transparent; border: 0; box-shadow: none; }
+.nature-theme .ew-logo-image {
+  display: block;
+  width: 145px;
+  height: auto;
+  max-height: 66px;
+  object-fit: contain;
+  mix-blend-mode: screen;
+  filter: saturate(.88) sepia(.06);
+}
+@media (max-width: 480px) {
+  .nature-theme .ew-logo-image { width: 90px; max-height: 60px; }
+}
+
+/* ==============================================================
+   EWALEL — ACCESSIBLE BRAND COLOURS (18 NOV 2026)
+   Brand: forest green #102F25, gold #CBA461,
+          cream #F7F3EA, flamingo pink #D88FA1.
+   Preserve JSX, booking state and existing component structure.
+   ============================================================== */
+.ew-site {
+  --ew-navy: #102f25;
+  --ew-deep: #102f25;
+  --ew-teal: #174b39;
+  --ew-pink: #cba461;
+  --ew-pink-dark: #a77b38;
+  --ew-cream: #f7f3ea;
+  --ew-muted: #40584e;
+  color: #102f25;
+  background: #f7f3ea;
+}
+.ew-site .ew-header,
+.ew-site .nature-site-header,
+.ew-site .ew-footer { background: #102f25; color: #fff; }
+.ew-site .ew-header { border-bottom-color: #cba461; }
+.ew-site .ew-nav button { color: #fff; }
+.ew-site .ew-nav button:hover,
+.ew-site .ew-nav button.active { color: #102f25; background: #cba461; }
+.ew-site.nature-theme .ew-nav button.active { color: #e8c27c; background: transparent; border-bottom-color: #cba461; }
+.ew-site .nature-header-book,
+.ew-site .ew-primary-button,
+.ew-site .ew-cottage-bottom button,
+.ew-site .nature-tile-bottom button,
+.ew-site .ew-photo-dialog-foot button { background: #cba461; color: #102f25; }
+.ew-site .nature-search button,
+.ew-site .ew-dark-button,
+.ew-site .ew-booking-next { background: #174b39; color: #fff; }
+.ew-site .ew-kicker,
+.ew-site .nature-section-kicker { color: #8b6126; }
+.ew-site .nature-cottages-intro p,
+.ew-site .ew-note,
+.ew-site .ew-cottage-meta,
+.ew-site .ew-location,
+.ew-site .nature-tile-meta,
+.ew-site .ew-booking-step-body > p { color: #40584e; }
+.ew-site .ew-booking-form,
+.ew-site .ew-cottage-card,
+.ew-site .nature-cottage-tile { background: #fff; color: #102f25; }
+.ew-site .ew-booking-form input:not([type=radio]):not([type=checkbox]),
+.ew-site .ew-booking-form select { color: #102f25; background-color: #fff; border-color: #aebfb4; }
+.ew-site .ew-booking-form label,
+.ew-site .ew-booking-form h2 { color: #102f25; }
+.ew-site .ew-payment-panel { background: #f7f3ea; border-color: #d7cbb4; }
+.ew-site .ew-booking-progress-item.active span,
+.ew-site .ew-booking-progress-item.completed span { background: #174b39; color: #fff; }
+.ew-site .ew-booking-form .ew-availability-calendar,
+.ew-site .ew-availability-calendar { background: #fffefa; border: 1px solid #d7cdbb; color: #102f25; }
+.ew-site .ew-calendar-heading,
+.ew-site .ew-calendar-month strong,
+.ew-site .ew-calendar-jump-grid label { color: #102f25; font-weight: 800; }
+.ew-site .ew-calendar-intro small,
+.ew-site .ew-calendar-footnote,
+.ew-site .ew-calendar-weekday,
+.ew-site .ew-calendar-legend { color: #40584e; }
+.ew-site .ew-calendar-jump-grid select { background: #fff; color: #102f25; border: 1px solid #9eafa3; font-weight: 700; }
+.ew-site .ew-booking-form .ew-calendar-days > button.ew-calendar-day {
+  background: #e9f4ee; border: 1px solid #91b6a4 !important;
+  color: #102f25; font-weight: 700; opacity: 1;
+}
+.ew-site .ew-booking-form .ew-calendar-days > button.ew-calendar-day:not(:disabled):hover { background: #d4eadc; border-color: #387b59 !important; }
+.ew-site .ew-booking-form .ew-calendar-days > button.ew-calendar-day:disabled:not(.ew-date-booking):not(.ew-date-maintenance):not(.ew-date-selected) { background: #edf1ed; border-color: #d0dad2 !important; color: #687770; opacity: 1 !important; }
+.ew-site .ew-booking-form .ew-calendar-days > button.ew-calendar-day.ew-date-booking { background: #f4c6c7; border-color: #bf737d !important; color: #722b38; }
+.ew-site .ew-booking-form .ew-calendar-days > button.ew-calendar-day.ew-date-maintenance { background: #f5dfa9; border-color: #b48a37 !important; color: #65450d; }
+.ew-site .ew-booking-form .ew-calendar-days > button.ew-calendar-day.ew-date-within { background: #b9ddc7; border-color: #4a8867 !important; color: #102f25; }
+.ew-site .ew-booking-form .ew-calendar-days > button.ew-calendar-day.ew-date-selected { background: #102f25; border: 2px solid #102f25 !important; color: #fff; }
+.ew-site .ew-booking-form .ew-calendar-days > button.ew-calendar-day:focus-visible,
+.ew-site button:focus-visible,
+.ew-site input:focus-visible,
+.ew-site select:focus-visible { outline: 3px solid #a77b38; outline-offset: 2px; }
+/* Pink remains a small brand accent rather than the primary button colour. */
+.ew-site .ew-step-policy { border-color: #d88fa1; }
+.ew-site .ew-photo-thumb.active { border-color: #174b39; }

@@ -223,7 +223,7 @@ function MpesaPayments() {
           <option value="">Select booking</option>
           {eligible.map(b => <option key={b.id} value={b.id}>{b.ref || b.id} — {b.name || b.guest_name} — {kes(b.total)}</option>)}
         </select>
-      </label>
+      </label>a
       <label>M-PESA receipt number
         <input required maxLength={20} value={receiptNumber}
           onChange={e => setReceiptNumber(e.target.value.toUpperCase())}

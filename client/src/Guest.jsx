@@ -736,6 +736,15 @@ export default function Guest() {
 
   useEffect(() => { setCheckin(""); setCheckout(""); setAvailabilityReady(false); }, [chosen]);
 
+  function showHomeCottages() {
+    setPage("Home");
+    setMenuOpen(false);
+    setError("");
+    window.requestAnimationFrame(() => {
+      document.getElementById("ew-home-cottages")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   function navigate(nextPage) {
     setPage(nextPage);
     setMenuOpen(false);
@@ -928,359 +937,83 @@ export default function Guest() {
 
   const navigation = [
     "Home",
-    "Cottages",
     "Book a Stay",
     "Contact Us"
   ];
 
   return (
-    <div className="ew-site">
+    <div className="ew-site nature-theme">
 
-      {/* HEADER */}
-
-      <header className="ew-header">
+      {/* PUBLIC HEADER — screenshot-inspired design */}
+      <header className="ew-header nature-site-header">
         <div className="ew-header-inner">
           <Logo onClick={() => navigate("Home")} />
-
           <div className="ew-navigation-area">
-            <div className="ew-tagline">
-              STAY <span>•</span> RELAX <span>•</span> EXPLORE
-            </div>
-
-            <nav className={menuOpen ? "ew-nav open" : "ew-nav"}>
-              {navigation.map((item) => (
-                <button
-                  type="button"
-                  key={item}
-                  className={page === item ? "active" : ""}
-                  onClick={() => navigate(item)}
-                >
-                  {item}
-                </button>
-              ))}
+            <nav className={menuOpen ? "ew-nav open" : "ew-nav"} aria-label="Main navigation">
+              <button type="button" className={page === "Home" ? "active" : ""} onClick={() => navigate("Home")}>Home</button>
+              <button type="button" onClick={showHomeCottages}>Cottages</button>
+              <button type="button" onClick={() => navigate("Book a Stay")}>Book a Stay</button>
+              <button type="button" onClick={() => navigate("Contact Us")}>Contact</button>
             </nav>
           </div>
-
-          <div className="ew-paybill">
-            <span className="ew-mpesa">M-PESA</span>
-
-            <div className="ew-paybill-details">
-              <small>Pay Bill Number</small>
-              <strong>
-                {PAYBILL || "522533"}
-              </strong>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            className="ew-mobile-menu"
-            onClick={() => setMenuOpen(!menuOpen)}
-            aria-label="Toggle navigation"
-          >
-            {menuOpen ? <X /> : <Menu />}
-          </button>
+          <a className="nature-header-phone" href="tel:+254714123456"><Phone size={14}/> +254 714 123 456</a>
+          <button type="button" className="nature-header-book" onClick={() => navigate("Book a Stay")}>Book Your Stay <ArrowRight size={15}/></button>
+          <button type="button" className="ew-mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle navigation" aria-expanded={menuOpen}>{menuOpen ? <X/> : <Menu/>}</button>
         </div>
       </header>
 
-      {/* HOME */}
-
       {page === "Home" && (
         <>
-          <section className="ew-hero">
-            <img
-              className="ew-hero-image"
-              src={HERO_IMAGE}
-              alt="Ewalel Cottages exterior"
-              width="1600"
-              height="900"
-              loading="eager"
-              fetchPriority="high"
-              decoding="async"
-            />
-
-            <div className="ew-hero-shade" />
-
-            <div className="ew-hero-content">
-              <div className="ew-hero-eyebrow">
-                WELCOME TO
+          <section className="nature-hero">
+            <img className="nature-hero-photo" src={HERO_IMAGE} alt="Ewalel Cottages at Lake Elementaita" loading="eager" fetchPriority="high" decoding="async" />
+            <div className="nature-hero-overlay"/>
+            <div className="nature-hero-inner">
+              <div className="nature-eyebrow">EWALEL COTTAGES · LAKE ELEMENTAITA <span>────</span></div>
+              <h1>Where Nature<br/>Feels Like Home.</h1>
+              <p>Escape the ordinary. Discover a quieter side of Kenya, surrounded by comfort, nature and unforgettable views.</p>
+              <div className="nature-highlights">
+                <span><BedDouble size={16}/> Luxury Cottages</span>
+                <span><TreePine size={16}/> Lake Views</span>
+                <span><Waves size={16}/> Free Wi-Fi</span>
+                <span><ShieldCheck size={16}/> Secure &amp; Private</span>
               </div>
-
-              <h1>
-                EWALEL
-                <span>COTTAGES</span>
-              </h1>
-
-              <div className="ew-pink-rule" />
-
-              <h2>Your escape into nature.</h2>
-
-              <p>
-                Experience peaceful surroundings,
-                thoughtfully furnished cottages and
-                a memorable stay in Kenya.
-              </p>
-
-              <button
-                type="button"
-                className="ew-primary-button"
-                onClick={() => navigate("Book a Stay")}
-              >
-                Book a Stay
-                <span className="ew-button-icon">
-                  <ArrowRight size={21} />
-                </span>
-              </button>
+            </div>
+            <div className="nature-search" aria-label="Find available cottages">
+              <label><CalendarDays size={20}/><span><strong>Check-in</strong><input type="date" min={kenyaToday()} value={checkin} onChange={e => {setCheckin(e.target.value);if(checkout && checkout <= e.target.value)setCheckout("");}} aria-label="Check-in date" /></span></label>
+              <label><CalendarDays size={20}/><span><strong>Check-out</strong><input type="date" min={checkin || kenyaToday()} value={checkout} onChange={e => setCheckout(e.target.value)} aria-label="Check-out date" /></span></label>
+              <label><Users size={20}/><span><strong>Guests</strong><select value={guests} onChange={e => changeGuestCount(e.target.value)} aria-label="Number of guests">{Array.from({length:10},(_,i)=>i+1).map(n=><option key={n} value={n}>{n} {n===1?"Guest":"Guests"}</option>)}</select></span></label>
+              <button type="button" onClick={() => {if(!checkin || !checkout || checkout <= checkin){setError("Please select valid check-in and check-out dates.");return;}setError("");showHomeCottages();}}>Check Availability <ArrowRight size={17}/></button>
             </div>
           </section>
-
-          {/* AMENITIES */}
-
-          <section className="ew-features">
-            <div className="ew-feature-grid">
-              {features.map(({ title, description, Icon }) => (
-                <div className="ew-feature" key={title}>
-                  <Icon size={39} strokeWidth={1.7} />
-                  <h3>{title}</h3>
-                  <p>{description}</p>
-                </div>
+          {error && <p className="nature-home-error" role="alert">{error}</p>}
+          <section id="ew-home-cottages" className="nature-cottages" aria-label="Our cottages">
+            <div className="nature-cottages-intro">
+              <span className="nature-section-kicker">— &nbsp; STAY WITH US</span>
+              <h2>Our Cottages</h2>
+              <p>Two beautifully designed cottages that combine modern comfort with the calm of nature.</p>
+              <button type="button" onClick={() => document.getElementById("nature-cottage-list")?.scrollIntoView({behavior:"smooth",block:"center"})}>Explore Cottages <ArrowRight size={17}/></button>
+              {checkin && checkout && checkout > checkin && <p className="nature-dates">Your dates: {checkin} to {checkout} · {guests} guests</p>}
+            </div>
+            <div id="nature-cottage-list" className="nature-cottage-list">
+              {loading ? <p>Loading cottages…</p> : cottages.filter(c=>Number(c.capacity)>=Number(guests)).length===0 ? <p>No cottages match the selected guest count.</p> : cottages.filter(c=>Number(c.capacity)>=Number(guests)).map((c,index)=>(
+                <article className="nature-cottage-tile" key={c.id}>
+                  <div className="nature-tile-photo">
+                    <CottageGallery cottage={c} fallback={photos[index%photos.length]} onBook={()=>{setChosen(String(c.id));navigate("Book a Stay");}} />
+                    <span>{c.name}</span>
+                  </div>
+                  <div className="nature-tile-meta"><span><Users size={14}/> Up to {c.capacity} Guests</span><span><MapPin size={14}/> {c.location || "Lake Elementaita"}</span></div>
+                  <div className="nature-tile-bottom"><strong>{money(c.nightly_rate)} <small>/ night</small></strong><button type="button" onClick={()=>{setChosen(String(c.id));navigate("Book a Stay");}}>Book now <ArrowRight size={15}/></button></div>
+                </article>
               ))}
             </div>
           </section>
-
-          {/* INTRODUCTION */}
-
-          <section className="ew-intro ew-section">
-            <div className="ew-intro-copy">
-              <span className="ew-kicker">
-                THE EWALEL EXPERIENCE
-              </span>
-
-              <h2>
-                Where comfort
-                <em> meets nature.</em>
-              </h2>
-
-              <p>
-                Discover a welcoming retreat surrounded by
-                natural beauty. Whether you're planning a
-                weekend escape or a longer getaway, Ewalel
-                Cottages offers a peaceful setting to relax
-                and reconnect.
-              </p>
-
-              <button
-                className="ew-dark-button"
-                type="button"
-                onClick={() => navigate("Cottages")}
-              >
-                Explore our cottages <ArrowRight size={18} />
-              </button>
-            </div>
-
-            <div className="ew-intro-photos">
-              <img
-                src="/images/lounge.jpeg"
-                alt="Ewalel lounge"
-                loading="lazy"
-                decoding="async"
-              />
-              <img
-                src="/images/bedroom.jpeg"
-                alt="Ewalel bedroom"
-                loading="lazy"
-                decoding="async"
-              />
-            </div>
-          </section>
-
-          {/* STAY SEARCH */}
-
-          <section className="ew-search-section">
-            <div className="ew-search-heading">
-              <span className="ew-kicker">PLAN YOUR ESCAPE</span>
-              <h2>Find your perfect stay.</h2>
-              <p>
-                Choose your dates and let your next getaway begin.
-              </p>
-            </div>
-
-            <div className="ew-search-panel">
-              <label>
-                <CalendarDays size={19} />
-                <span>
-                  Check-in
-                  <input
-                    type="date"
-                    min={today()}
-                    value={checkin}
-                    onChange={(e) => setCheckin(e.target.value)}
-                  />
-                </span>
-              </label>
-
-              <label>
-                <CalendarDays size={19} />
-                <span>
-                  Check-out
-                  <input
-                    type="date"
-                    min={checkin || today()}
-                    value={checkout}
-                    onChange={(e) => setCheckout(e.target.value)}
-                  />
-                </span>
-              </label>
-
-              <label>
-                <Users size={19} />
-                <span>
-                  Guests
-                  <select
-                    value={guests}
-                    onChange={(e) => changeGuestCount(e.target.value)}
-                  >
-                    {Array.from({ length: 10 }, (_, i) => i + 1)
-                      .map((number) => (
-                        <option key={number} value={number}>
-                          {number} {number === 1 ? "Guest" : "Guests"}
-                        </option>
-                      ))}
-                  </select>
-                </span>
-              </label>
-
-              <button
-                className="ew-primary-button"
-                type="button"
-                onClick={() => {
-                  if (!checkin || !checkout || nights < 1) {
-                    setError("Choose valid check-in and check-out dates.");
-                    return;
-                  }
-                  navigate("Cottages");
-                }}
-              >
-                Explore cottages <ArrowRight size={18} />
-              </button>
-            </div>
-
-            {error && (
-              <p className="ew-error" role="alert">{error}</p>
-            )}
-
-            <p className="ew-note">
-              Final availability is checked when you submit a booking.
-            </p>
-          </section>
-
-          {/* PHOTO GALLERY */}
-
-          <section className="ew-section ew-gallery-section">
-            <div className="ew-centered-heading">
-              <span className="ew-kicker">DISCOVER EWALEL</span>
-              <h2>Made for memorable moments.</h2>
-            </div>
-
-            <div className="ew-gallery">
-              {photos.slice(1).map((photo, index) => (
-                <img
-                  key={photo}
-                  src={photo}
-                  loading="lazy"
-                  decoding="async"
-                  alt={[
-                    "Comfortable lounge",
-                    "Cottage interior",
-                    "Beautiful bedroom",
-                    "Relaxing living space"
-                  ][index]}
-                />
-              ))}
-            </div>
+          <section className="nature-benefits" aria-label="Why stay at Ewalel">
+            <div><TreePine/><span><strong>Peaceful Location</strong><small>A serene retreat in the heart of nature</small></span></div>
+            <div><Waves/><span><strong>Nature &amp; Wildlife</strong><small>Close to Lake Elementaita's rich ecosystem</small></span></div>
+            <div><BedDouble/><span><strong>Self-Catering Comfort</strong><small>Fully equipped, spacious cottages</small></span></div>
+            <div><MapPin/><span><strong>Easy Access</strong><small>Just a short drive from Nairobi</small></span></div>
           </section>
         </>
-      )}
-
-      {/* COTTAGES */}
-
-      {page === "Cottages" && (
-        <main className="ew-page">
-          <div className="ew-page-heading">
-            <span className="ew-kicker">OUR ACCOMMODATION</span>
-            <h1>Find your perfect cottage.</h1>
-            <p>
-              Beautiful spaces, peaceful surroundings and
-              comfort throughout your stay.
-            </p>
-            {checkin && checkout && nights > 0 && (
-              <p>
-                Your dates: {checkin} to {checkout} · {guests} guests
-              </p>
-            )}
-          </div>
-
-          {error && <p className="ew-error">{error}</p>}
-
-          {loading ? (
-            <p>Loading cottages...</p>
-          ) : cottages.length === 0 ? (
-            <p>No cottages are currently listed.</p>
-          ) : (
-            <div className="ew-cottage-grid">
-              {cottages
-                .filter((c) => Number(c.capacity) >= Number(guests))
-                .map((c, index) => (
-                  <article className="ew-cottage-card" key={c.id}>
-                    <div className="ew-cottage-image ew-cottage-image-gallery">
-                      <CottageGallery
-                        cottage={c}
-                        fallback={photos[index % photos.length]}
-                        onBook={() => { setChosen(String(c.id)); navigate("Book a Stay"); }}
-                      />
-                      <span>EW A L E L STAY</span>
-                    </div>
-
-                    <div className="ew-cottage-body">
-                      <h2>{c.name}</h2>
-
-                      <p className="ew-location">
-                        <MapPin size={16} />
-                        {c.location}
-                      </p>
-
-                      <p>
-                        {c.description ||
-                          "A comfortable and peaceful retreat at Ewalel Cottages."}
-                      </p>
-
-                      <div className="ew-cottage-meta">
-                        <Users size={17} />
-                        Up to {c.capacity} guests
-                      </div>
-
-                      <div className="ew-cottage-bottom">
-                        <strong>
-                          {money(c.nightly_rate)}
-                          <small> / night</small>
-                        </strong>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setChosen(String(c.id));
-                            navigate("Book a Stay");
-                          }}
-                        >
-                          Book now <ArrowRight size={17} />
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                ))}
-            </div>
-          )}
-        </main>
       )}
 
       {/* BOOKING */}
