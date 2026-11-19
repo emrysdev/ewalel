@@ -29,8 +29,11 @@ const __filename = fileURLToPath(
 const __dirname = path.dirname(__filename);
 
 const app = express();
-// Railway terminates HTTPS at its reverse proxy. Trust one proxy hop.
-if (process.env.RAILWAY_ENVIRONMENT) app.set("trust proxy", 1);
+// Railway supplies RAILWAY_ENVIRONMENT_NAME (not RAILWAY_ENVIRONMENT).
+// One proxy hop is provisional; confirm it with the authenticated IP diagnostic.
+if (process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT_ID) {
+  app.set("trust proxy", 1);
+}
 
 app.use(compression());
 
@@ -3336,6 +3339,25 @@ app.post("/api/visits", visitLimiter, asyncRoute(async (req, res) => {
     geo.country, geo.region, geo.city, geo.latitude, geo.longitude
   ]);
   res.status(204).end();
+}));
+
+// Admin-only IP diagnostic: inspect the address Express uses behind Railway.
+// Do not expose this endpoint publicly or trust client-supplied IP values.
+app.get("/api/admin/visitors/ip-diagnostic", auth, asyncRoute(async (req, res) => {
+  const ip = visitorIp(req);
+  const forwarded = String(req.headers["x-forwarded-for"] || "")
+    .split(",").map(v => v.trim()).filter(Boolean).slice(0, 10);
+  const location = await lookupVisitorLocation(ip);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    detected_ip: ip,
+    express_ip: req.ip,
+    socket_ip: req.socket.remoteAddress || null,
+    forwarded_for_chain: forwarded,
+    proxy_trust: app.get("trust proxy"),
+    detected_location: location,
+    note: "IP geolocation is approximate. Compare detected_ip against your phone's public IP on the same network. Forwarded headers are diagnostic only."
+  });
 }));
 
 // Admin-only, bounded backfill for earlier visits with missing locations.

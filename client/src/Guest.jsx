@@ -956,7 +956,7 @@ export default function Guest() {
               <button type="button" onClick={() => navigate("Contact Us")}>Contact</button>
             </nav>
           </div>
-          <a className="nature-header-phone" href="tel:+254714123456"><Phone size={14}/> +254 714 123 456</a>
+          <a className="nature-header-phone" href="tel:+254714123456"><Phone size={14}/> +254 720 223 460</a>
           <button type="button" className="nature-header-book" onClick={() => navigate("Book a Stay")}>Book Your Stay <ArrowRight size={15}/></button>
           <button type="button" className="ew-mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle navigation" aria-expanded={menuOpen}>{menuOpen ? <X/> : <Menu/>}</button>
         </div>
