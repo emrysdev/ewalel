@@ -57,34 +57,49 @@ app.use(
   })
 );
 
-// General API rate limiting
+// Rate limiting: keep public browsing responsive while protecting writes.
+// Limits apply per Express client IP; verify Railway proxy configuration.
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: process.env.NODE_ENV === "production" ? 100 : 2000,
+  limit: 600,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: {
-    error: "Too many requests. Please try again later."
-  }
+  message: { error: "Too many requests. Please try again later." }
 });
 
-// app.use("/api", apiLimiter);
-// Apply the general API rate limiter in production only
+// Separate protection for read-only public cottage and review endpoints.
+const publicBrowseLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 1200,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many browsing requests. Please try again later." }
+});
+
 if (process.env.NODE_ENV === "production") {
-  app.use("/api", apiLimiter);
+  app.use("/api", (req, res, next) => {
+    const publicRead = req.method === "GET" && (
+      req.path === "/cottages" ||
+      req.path.startsWith("/cottages/") ||
+      req.path === "/reviews"
+    );
+    if (publicRead) return publicBrowseLimiter(req, res, next);
+
+    // This route already has its own dedicated 30/minute limiter.
+    if (req.method === "POST" && req.path === "/visits") return next();
+
+    return apiLimiter(req, res, next);
+  });
 }
 
-// Stricter login protection
+// Retain strict login protection independently of general API traffic.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
-  standardHeaders: "draft-8",
+  standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: {
-    error: "Too many login attempts. Try again in 15 minutes."
-  }
+  message: { error: "Too many login attempts. Try again in 15 minutes." }
 });
-
 app.use("/api/auth/login", loginLimiter);
 
 const PORT = Number(process.env.PORT || 4000);
