@@ -390,34 +390,71 @@ const uploadDir = path.resolve(
 
 const cottageUploadDir = path.join(uploadDir, "cottages");
 
-// Avoid accepting uploads that would be lost on Railway's ephemeral filesystem.
-// Set UPLOAD_DIR=/data/uploads after attaching a Railway volume at /data.
-const persistentPhotoStorage = Boolean(
-  process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.UPLOAD_DIR
-);
-function requirePersistentPhotoStorage(req, res, next) {
-  if (process.env.RAILWAY_ENVIRONMENT_NAME && !persistentPhotoStorage) {
-    return res.status(503).json({
-      error: "Photo uploads are disabled until persistent storage is configured. Mount a Railway volume and set UPLOAD_DIR=/data/uploads."
-    });
+// Require a verified persistent Railway volume before accepting photographs.
+// The Railway service must mount its volume at /data and set UPLOAD_DIR=/data/uploads.
+const railwayDeployment = Boolean(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT_ID);
+const railwayMountPath = path.resolve(process.env.RAILWAY_VOLUME_MOUNT_PATH || "/data");
+const configuredUploadDir = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : null;
+const persistentPhotoStorage = railwayDeployment
+  ? Boolean(configuredUploadDir &&
+      (configuredUploadDir === railwayMountPath || configuredUploadDir.startsWith(railwayMountPath + path.sep)) &&
+      process.env.RAILWAY_VOLUME_MOUNT_PATH)
+  : Boolean(configuredUploadDir);
+
+async function checkPhotoStorage() {
+  const result = {
+    upload_directory: uploadDir,
+    cottage_directory: cottageUploadDir,
+    railway_environment: railwayDeployment,
+    volume_mount_path: process.env.RAILWAY_VOLUME_MOUNT_PATH || null,
+    configured_upload_dir: configuredUploadDir,
+    persistent_storage_configured: persistentPhotoStorage,
+    writable: false
+  };
+  if (!persistentPhotoStorage && railwayDeployment) return result;
+  try {
+    await fs.mkdir(cottageUploadDir, { recursive: true });
+    const probe = path.join(cottageUploadDir, `.storage-check-${crypto.randomUUID()}`);
+    await fs.writeFile(probe, "", { flag: "wx" });
+    await fs.unlink(probe);
+    result.writable = true;
+  } catch (error) {
+    result.storage_error_code = error.code || "UNKNOWN";
   }
-  next();
+  return result;
 }
 
+async function requirePersistentPhotoStorage(req, res, next) {
+  try {
+    const status = await checkPhotoStorage();
+    if (railwayDeployment && !status.persistent_storage_configured) {
+      return res.status(503).json({
+        error: "Persistent photo storage is not configured in the running backend deployment.",
+        code: "PHOTO_STORAGE_NOT_CONFIGURED"
+      });
+    }
+    if (!status.writable) {
+      return res.status(503).json({
+        error: "Photo storage is not writable. Check the Railway volume mount and permissions.",
+        code: "PHOTO_STORAGE_NOT_WRITABLE"
+      });
+    }
+    next();
+  } catch (error) { next(error); }
+}
 
-await fs.mkdir(cottageUploadDir, {
-  recursive: true
-});
+await fs.mkdir(cottageUploadDir, { recursive: true });
+console.log("PHOTO STORAGE CONFIG:", JSON.stringify({
+  uploadDir,
+  cottageUploadDir,
+  volumeMount: process.env.RAILWAY_VOLUME_MOUNT_PATH || null,
+  configured: persistentPhotoStorage
+}));
 
-console.log("UPLOAD DIRECTORY:", uploadDir);
-console.log("COTTAGE DIRECTORY:", cottageUploadDir);
-
-const files = await fs.readdir(cottageUploadDir);
-console.log("AVAILABLE PHOTOS:", files);
-
-
-
-
+// Authenticated diagnostics. Does not expose credentials or file contents.
+app.get("/api/admin/photo-storage/diagnostics", auth, asyncRoute(async (req, res) => {
+  res.json(await checkPhotoStorage());
+}));
 
 // Admin-only diagnostics: tells whether MySQL image paths correspond to real files.
 app.get("/api/admin/photo-storage/status", auth, asyncRoute(async (req, res) => {
@@ -470,7 +507,7 @@ app.use(
 // const uploadPhotos = multer({
 //   storage: multer.memoryStorage(),
 //   limits: {
-//     files: 10,
+//     files: 3,
 //     fileSize: 5 * 1024 * 1024
 //   },
 //   fileFilter(req, file, cb) {
@@ -480,7 +517,7 @@ app.use(
 //     }
 //     cb(null, true);
 //   }
-// }).array("photos", 10);
+// }).array("photos", 3);
 
 
 const allowedImageTypes = [
@@ -499,8 +536,8 @@ const uploadPhotos = multer({
   storage: multer.memoryStorage(),
 
   limits: {
-    files: 10,
-    fileSize: 10 * 1024 * 1024
+    files: 3,
+    fileSize: 50 * 1024 * 1024
   },
 
   fileFilter(req, file, cb) {
@@ -514,7 +551,7 @@ const uploadPhotos = multer({
 
     cb(null, true);
   }
-}).array("photos", 10);
+}).array("photos", 3);
 
 
 
@@ -3563,9 +3600,12 @@ app.use((err, req, res, next) => {
   console.error(err);
 
   if (err instanceof multer.MulterError) {
-    return res.status(400).json({
-      error: err.message
-    });
+    const message = err.code === "LIMIT_FILE_SIZE"
+      ? "Each photograph must be 50 MB or smaller."
+      : err.code === "LIMIT_FILE_COUNT" || err.code === "LIMIT_UNEXPECTED_FILE"
+        ? "Upload up to 3 photographs at a time."
+        : err.message;
+    return res.status(400).json({ error: message });
   }
 
   if (err.code === "ER_DUP_ENTRY") {
