@@ -19,10 +19,8 @@ const BASE = (
   import.meta.env.VITE_API_URL ||
   (isLocal ? "http://localhost:4000" : window.location.origin)
 ).replace(/\/$/, "");
-const IMAGE_BASE = (
-  import.meta.env.VITE_IMAGE_URL ||
-  (isLocal ? BASE : "https://robust-generosity-production-7f17.up.railway.app")
-).replace(/\/$/, "");
+// Uploaded photographs are served by the same backend unless an image host is configured.
+const IMAGE_BASE = (import.meta.env.VITE_IMAGE_URL || BASE).replace(/\/$/, "");
 
 
 
@@ -34,7 +32,9 @@ function imageUrl(url) {
   if (/^https?:\/\//i.test(value)) {
     try {
       const parsed = new URL(value);
-      if (parsed.pathname.startsWith("/uploads/")) {
+      if (parsed.pathname.startsWith("/uploads/") &&
+          (parsed.hostname.endsWith(".up.railway.app") ||
+           ["localhost", "127.0.0.1"].includes(parsed.hostname))) {
         return `${IMAGE_BASE}${parsed.pathname}${parsed.search}`;
       }
       if (["localhost", "127.0.0.1"].includes(parsed.hostname)) {

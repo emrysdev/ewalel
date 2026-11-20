@@ -302,6 +302,7 @@ function auth(req, res, next) {
 app.post(
   "/api/admin/restore-cottage-photo",
   auth,
+  requirePersistentPhotoStorage,
   express.raw({
     type: "application/octet-stream",
     limit: "10mb"
@@ -389,6 +390,20 @@ const uploadDir = path.resolve(
 
 const cottageUploadDir = path.join(uploadDir, "cottages");
 
+// Avoid accepting uploads that would be lost on Railway's ephemeral filesystem.
+// Set UPLOAD_DIR=/data/uploads after attaching a Railway volume at /data.
+const persistentPhotoStorage = Boolean(
+  process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.UPLOAD_DIR
+);
+function requirePersistentPhotoStorage(req, res, next) {
+  if (process.env.RAILWAY_ENVIRONMENT_NAME && !persistentPhotoStorage) {
+    return res.status(503).json({
+      error: "Photo uploads are disabled until persistent storage is configured. Mount a Railway volume and set UPLOAD_DIR=/data/uploads."
+    });
+  }
+  next();
+}
+
 
 await fs.mkdir(cottageUploadDir, {
   recursive: true
@@ -403,6 +418,29 @@ console.log("AVAILABLE PHOTOS:", files);
 
 
 
+
+// Admin-only diagnostics: tells whether MySQL image paths correspond to real files.
+app.get("/api/admin/photo-storage/status", auth, asyncRoute(async (req, res) => {
+  const rows = await query(`SELECT id, cottage_id, photo_url, is_cover
+                            FROM cottage_photos ORDER BY cottage_id, id`);
+  const photos = await Promise.all(rows.map(async (row) => {
+    const url = String(row.photo_url || "");
+    const filename = path.basename(url.split("?")[0]);
+    const local = /^\/uploads\/cottages\/[a-f0-9-]{36}\.webp$/i.test(url);
+    let exists = null;
+    if (local) {
+      try { await fs.access(path.join(cottageUploadDir, filename)); exists = true; }
+      catch { exists = false; }
+    }
+    return { id: row.id, cottage_id: row.cottage_id, url, local, exists, is_cover: row.is_cover };
+  }));
+  res.json({ persistent_storage_configured: persistentPhotoStorage,
+    storage_source: process.env.RAILWAY_VOLUME_MOUNT_PATH ? "railway_volume" :
+      process.env.UPLOAD_DIR ? "custom_directory" : "ephemeral_directory",
+    total: photos.length,
+    missing_local_files: photos.filter(p => p.local && p.exists === false).length,
+    photos });
+}));
 
 app.use(
   "/uploads",
@@ -847,6 +885,7 @@ app.get(
 app.post(
   "/api/admin/cottages/:id/photos",
   auth,
+  requirePersistentPhotoStorage,
   (req, res, next) => uploadPhotos(req, res, next),
   asyncRoute(async (req, res) => {
     const cottageId = req.params.id;

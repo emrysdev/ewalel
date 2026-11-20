@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import BookingConfirmation from "./BookingConfirmation.jsx";
 import { Overview, Revenue, Guests, Operations, Reports, PeriodBar, ExportBtn, periods } from "./Insights.jsx";
-import BookingConfirmation from ".Compnents/BookingConfirmation.jsx";
+import EmailCentre from "./components/EmailCentre.jsx";
 
 // const IMAGE_BASE = (
 //   import.meta.env.VITE_API_URL ||
@@ -257,7 +257,7 @@ function MpesaPayments() {
   </>;
 }
 
-const TABS = [["overview", "Overview"], ["revenue", "Revenue"], ["guests", "Guests"], ["operations", "Operations"], ["bookings", "Bookings"], ["confirmation", "Booking Confirmation"], ["mpesa", "M-PESA Payments"], ["maintenance", "Maintenance"], ["prices", "Prices"], ["photos", "Photos"], ["reports", "Excel reports"]];
+const TABS = [["overview", "Overview"], ["revenue", "Revenue"], ["guests", "Guests"], ["operations", "Operations"], ["bookings", "Bookings"], ["confirmation", "Booking Confirmation"], ["mpesa", "M-PESA Payments"], ["maintenance", "Maintenance"], ["prices", "Prices"], ["photos", "Photos"], ["reports", "Excel reports"], ["email", "Email Centre"]];
 
 export default function Admin() {
   const [authed, setAuthed] = useState(!!localStorage.getItem("ew_token")), [d, setD] = useState(null), [tab, setTab] = useState("overview"), [msg, setMsg] = useState(""), [period, setPeriod] = useState("year");
@@ -282,6 +282,7 @@ const View = {
   prices: Prices,
   photos: Photos,
   reports: Reports,
+  email: EmailCentre,
 }[tab];
 
   return <div className="adm">
