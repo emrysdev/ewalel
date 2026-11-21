@@ -34,14 +34,9 @@ const API = (
 
 // Public uploads are served by the website unless a separate image host is configured.
 // VITE_IMAGE_URL is optional; do not use an outdated Railway URL in production.
-// const IMAGE_BASE = (
-//   import.meta.env.VITE_IMAGE_URL ||
-//   API
-// ).replace(/\/$/, "");
-
 const IMAGE_BASE = (
   import.meta.env.VITE_IMAGE_URL ||
-  (isLocal ? API : window.location.origin)
+  API
 ).replace(/\/$/, "");
 
 
@@ -1521,6 +1516,22 @@ export default function Guest() {
         <div className="ew-footer-bottom">
           © {new Date().getFullYear()} Ewalel Cottages.
           All rights reserved.
+          <a
+            href="https://www.probantum.com.au/"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Designed by ProBantum Technologies (opens in a new tab)"
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center",
+              gap: 7, marginTop: 10, fontSize: "0.75rem", opacity: 0.85,
+              color: "inherit", textDecoration: "none"
+            }}
+          >
+            <span>Designed by</span>
+            <img src="images/probantum-logo.png" alt="" width="25" height="25"
+              loading="lazy" style={{ width: 25, height: 25, objectFit: "contain" }} />
+            <span style={{ fontWeight: 600 }}>ProBantum Technologies</span>
+          </a>
         </div>
       </footer>
     </div>
