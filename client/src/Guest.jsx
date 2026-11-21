@@ -32,11 +32,16 @@ const API = (
   (isLocal ? "http://localhost:4000" : window.location.origin)
 ).replace(/\/$/, "");
 
-// Uploaded photographs are stored on Railway's persistent volume.
-// Override VITE_IMAGE_URL if the image-serving domain changes.
+// Public uploads are served by the website unless a separate image host is configured.
+// VITE_IMAGE_URL is optional; do not use an outdated Railway URL in production.
+// const IMAGE_BASE = (
+//   import.meta.env.VITE_IMAGE_URL ||
+//   API
+// ).replace(/\/$/, "");
+
 const IMAGE_BASE = (
   import.meta.env.VITE_IMAGE_URL ||
-  (isLocal ? API : "https://robust-generosity-production-7f17.up.railway.app")
+  (isLocal ? API : window.location.origin)
 ).replace(/\/$/, "");
 
 
