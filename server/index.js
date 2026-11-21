@@ -521,15 +521,9 @@ app.use(
 
 
 const allowedImageTypes = [
-  "image/jpeg",       // JPG and JPEG
-  "image/png",        // PNG
-  "image/webp",       // WebP
-  "image/gif",        // GIF
-  "image/avif",       // AVIF
-  "image/tiff",       // TIFF
-  "image/bmp",        // BMP
-  "image/heic",       // HEIC
-  "image/heif"        // HEIF
+  "image/jpeg",
+  "image/png",
+  "image/webp"
 ];
 
 const uploadPhotos = multer({
@@ -544,7 +538,7 @@ const uploadPhotos = multer({
     if (!allowedImageTypes.includes(file.mimetype)) {
       return cb(
         new Error(
-          "Unsupported image format. Please upload JPG, JPEG, PNG, WebP, GIF, AVIF, TIFF, BMP, HEIC or HEIF."
+          "Only JPG, PNG and WebP photographs are supported."
         )
       );
     }
@@ -963,15 +957,7 @@ for (const file of req.files) {
 
   const metadata = await image.metadata();
 
-  const allowedFormats = [
-    "jpeg",
-    "png",
-    "webp",
-    "gif",
-    "avif",
-    "tiff",
-    "heif"
-  ];
+  const allowedFormats = ["jpeg", "png", "webp"];
 
   if (!allowedFormats.includes(metadata.format)) {
     throw new Error(
@@ -1085,7 +1071,7 @@ app.patch(
       photoId
     } = req.params;
 
-    if (!validId(id) || !validId(photoId)) {
+    if (!validId(id) || !/^[1-9]\d*$/.test(String(photoId))) {
       return res.status(400).json({
         error: "Invalid ID"
       });
@@ -1165,7 +1151,7 @@ app.delete(
       photoId
     } = req.params;
 
-    if (!validId(id) || !validId(photoId)) {
+    if (!validId(id) || !/^[1-9]\d*$/.test(String(photoId))) {
       return res.status(400).json({
         error: "Invalid ID"
       });
@@ -3606,6 +3592,10 @@ app.use((err, req, res, next) => {
         ? "Upload up to 3 photographs at a time."
         : err.message;
     return res.status(400).json({ error: message });
+  }
+
+  if (err instanceof Error && /^(Unsupported image format|Input buffer contains unsupported image format|Input file contains unsupported image format|Input image exceeds pixel limit)/i.test(err.message)) {
+    return res.status(400).json({ error: "Invalid or unsupported photograph. Use a valid JPG, PNG or WebP image." });
   }
 
   if (err.code === "ER_DUP_ENTRY") {

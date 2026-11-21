@@ -172,8 +172,8 @@ export default function CottageManagement({
     }
 
     for (const file of files) {
-      if (file.size > 5 * 1024 * 1024) {
-        throw new Error(`${file.name} exceeds the 5 MB limit.`);
+      if (file.size > 50 * 1024 * 1024) {
+        throw new Error(`${file.name} exceeds the 50 MB limit.`);
       }
 
       if (
@@ -184,16 +184,24 @@ export default function CottageManagement({
       }
     }
 
-    const data = new FormData();
-
-    files.forEach(file => {
-      data.append("photos", file);
-    });
-
-    return request(`/admin/cottages/${cottageId}/photos`, {
-      method: "POST",
-      body: data
-    });
+    // The server accepts at most three images per request to control memory use.
+    // Send up to ten selected photographs in sequential batches.
+    let result = null;
+    for (let offset = 0; offset < files.length; offset += 3) {
+      const data = new FormData();
+      files.slice(offset, offset + 3).forEach(file => {
+        data.append("photos", file);
+      });
+      try {
+        result = await request(`/admin/cottages/${encodeURIComponent(cottageId)}/photos`, {
+          method: "POST",
+          body: data
+        });
+      } catch (error) {
+        throw new Error(`Uploaded ${offset} of ${files.length} photographs before an error: ${error.message}`);
+      }
+    }
+    return result;
   }
 
   function openAdd() {
@@ -335,6 +343,8 @@ export default function CottageManagement({
     try {
       await uploadPhotos(photoCottage.id, galleryFiles);
       setGalleryFiles([]);
+      const picker = document.getElementById("ewalel-gallery-photo-input");
+      if (picker) picker.value = "";
       await loadGallery(photoCottage.id);
       await onRefresh?.();
     } catch (err) {
@@ -540,7 +550,7 @@ export default function CottageManagement({
                 }
               />
               <small>
-                Select up to 10 photographs, maximum 5 MB each.
+                Select up to 10 photographs, maximum 50 MB each.
               </small>
             </label>
 
@@ -589,6 +599,7 @@ export default function CottageManagement({
             <label className="cm-upload-label">
               Add photographs
               <input
+                id="ewalel-gallery-photo-input"
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 multiple
@@ -599,7 +610,7 @@ export default function CottageManagement({
                 }
               />
               <small>
-                JPG, PNG or WebP. Up to 10 images, 5 MB each.
+                JPG, PNG or WebP. Up to 10 images, 50 MB each.
               </small>
             </label>
 
