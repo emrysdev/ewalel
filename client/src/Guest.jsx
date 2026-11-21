@@ -1513,7 +1513,7 @@ export default function Guest() {
           </div>
         </div>
 
-        {/* <div className="ew-footer-bottom">
+        <div className="ew-footer-bottom">
           © {new Date().getFullYear()} Ewalel Cottages.
           All rights reserved.
           <a
@@ -1532,7 +1532,7 @@ export default function Guest() {
               loading="lazy" style={{ width: 25, height: 25, objectFit: "contain" }} />
             <span style={{ fontWeight: 600 }}>ProBantum Technologies</span>
           </a>
-        </div> */}
+        </div>
       </footer>
     </div>
   );
